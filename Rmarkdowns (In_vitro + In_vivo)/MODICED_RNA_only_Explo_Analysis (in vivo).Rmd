@@ -1,0 +1,209 @@
+---
+author: "Théo Lassale"
+editor_options: 
+  chunk_output_type: console
+date: '`r Sys.Date()`'
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_depth: 3
+    toc_float: true
+---
+
+
+
+# **1. Principal Component Analysis** {.tabset .tabset-fade .tabset-pills}
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+## Import Table of Counts (MODICED) - Raw
+library(tidyverse)
+library(patchwork)
+library(FactoMineR)
+library(factoextra)
+library(DESeq2)
+in.dir <- "/data/kdi_prod/project_result/1929/01.00/"
+counts <- read.csv("/data/kdi_prod/project_result/1929/01.00/results/counts/tablecounts_raw.csv", header=TRUE)
+rownames(counts) <- counts[,1]
+counts <- counts[,-1]
+protein_coding <- readr::read_delim("/data/annotations/pipelines/Mouse/mm10/gtf/gencode.vM22.annotation_proteinCoding_gene.bed", 
+                             delim = "\t", 
+                             col_names = c("chr","start","end","gene","score","strand"))
+
+annot_gene <- read_delim(file.path(in.dir,"results/counts/tableannot.csv"), delim = ",") %>%
+  dplyr::select(gene_id,gene_name)
+  
+counts <- read_delim(file.path(in.dir,"results/counts/tablecounts_raw.csv"), delim = ",")
+colnames(counts)[1] <- "gene_id"
+
+
+counts <- counts %>%
+   inner_join(annot_gene, by = "gene_id") %>% 
+   relocate(gene_name, .after = gene_id) %>% 
+  dplyr::filter(gene_name %in% protein_coding$gene)
+
+colnames(counts) <- make.names(colnames(counts))
+
+```
+
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+## Import samplePlan (MODICED)
+sample_plan <- read.csv("/data/kdi_prod/project_result/1929/01.00/samples/sample_plan.csv", header=FALSE)
+colnames(sample_plan) <- c("Sample ID", "Sample Name", "Path_to_R1", "Path_to_R2")
+rownames(sample_plan) <- NULL
+sample_plan[grepl("Ct", sample_plan$`Sample ID`) | grepl("CT", sample_plan$`Sample ID`), "treatment"] <- "PBS"
+sample_plan[1:3, "treatment"] <- "MTX"
+sample_plan[4:6, "treatment"] <- "PBS"
+sample_plan[!grepl("PBS", sample_plan$`Sample ID`) & grepl("MTX", sample_plan$`Sample ID`), "treatment"] <- "MTX"
+sample_plan[grepl("Cis", sample_plan$`Sample ID`),"treatment"] <- "Cis"
+sample_plan[grepl("Oxa", sample_plan$`Sample ID`),"treatment"] <- "Oxa"
+sample_plan[grepl("D3", sample_plan$`Sample ID`), "Time_point"] <- 3
+sample_plan[grepl("D10", sample_plan$`Sample ID`), "Time_point"] <- 10
+sample_plan[grepl("D22", sample_plan$`Sample ID`) | grepl("D24", sample_plan$`Sample ID`) , "Time_point"] <- 22
+
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+## New SamplePlan
+library(dplyr)
+sample_annot <- read.csv("/data/kdi_prod/project_result/1929/01.00/samples/sample_annot.csv", check.names = FALSE)
+sample_annot$`Sample ID` <- make.names(sample_annot$`Sample ID`)
+sample_plan$`Sample ID`<- make.names(sample_plan$`Sample ID`)
+all_sample <- full_join(sample_plan, sample_annot, by = "Sample ID")
+all_sample$ID <- stringr::str_remove(stringr::str_remove(all_sample$`Sample ID`, "[._]D3|[._]D10|[._]D22$"), "MTX_PBS_|OCP_D22_")
+
+sample_plan <- tidyr::unite(all_sample, col = "new_name", Treatment, Day, Sheet, ID, remove = FALSE, sep = "_")
+rownames(sample_plan) <- sample_plan$new_name
+counts <- counts[,c("gene_id","gene_name",sample_plan$`Sample ID`)]
+colnames(counts)[3:ncol(counts)] <- sample_plan$new_name
+
+```
+
+
+
+
+
+
+## **MTX vs PBS** {.tabset .tabset-fade .tabset-pills}
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+sample_plan_1 <- sample_plan[!grepl("OCP|Oxa|Cis|Ct.*D3|CT.*D24",sample_plan$`Sample ID`),]
+for (i in 1:nrow(sample_plan_1)){
+  sample_plan_1[grepl("D3", sample_plan_1$Day[i]), "treatment"][i] <- paste(sample_plan_1$treatment[i],"_D3", sep="")
+}
+for (i in 1:nrow(sample_plan_1)){
+  sample_plan_1[grepl("D10", sample_plan_1$Day[i]), "treatment"][i] <- paste(sample_plan_1$treatment[i],"_D10", sep="")
+}
+for (i in 1:nrow(sample_plan_1)){
+  sample_plan_1[grepl("D22", sample_plan_1$Day[i]), "treatment"][i] <- paste(sample_plan_1$treatment[i],"_D22", sep="")
+}
+counts_1 <- counts[,sample_plan_1$new_name]
+deseq_object_1 <-DESeqDataSetFromMatrix(countData = counts_1, colData = DataFrame(treatment = sample_plan_1$treatment, Time_point = factor(sample_plan_1$Time_point)), ~ treatment)
+deseq_object_1 <- estimateSizeFactors(deseq_object_1)
+deseq_object_1 <- deseq_object_1[rowSums(counts(deseq_object_1)) > 0,]
+deseq_object_1_vst <- vst(deseq_object_1, blind=TRUE)
+deseq_object_1_vst_matrix <- assay(deseq_object_1_vst)
+run_pca_1 <- PCA(t(deseq_object_1_vst_matrix), ncp=4, graph=FALSE)
+```
+
+### Excel Sheet 
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# color by excel sheet
+fviz_pca_ind(run_pca_1, label="none", habillage=as.factor(sample_plan_1$Sheet), pointsize=3, labelsize=3, repel=T, invisible="quali") + ggtitle("PC2 vs PC1 - Grouped by Excel Sheet") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+```
+
+### Treatment
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# color by treatment
+fviz_pca_ind(run_pca_1, label="none", habillage=as.factor(sample_plan_1$treatment), pointsize=3, labelsize=3, repel=T, invisible="quali") + ggtitle("PC2 vs PC1 - Grouped by Treatment") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+```
+
+### Experiment
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# color by exp
+fviz_pca_ind(run_pca_1, label="none", habillage=as.factor(sample_plan_1$Exp), pointsize=3, labelsize=2, repel=T, invisible="quali") + ggtitle("PC2 vs PC1 - Grouped by Experimental Batch") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+```
+
+
+
+## **Oxa/Cis vs PBS** {.tabset .tabset-fade .tabset-pills}
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+sample_plan_2 <- sample_plan[!(sample_plan$`Sample ID` %in% sample_plan_1$`Sample ID`),]
+sample_plan_2 <- sample_plan_2[!grepl("D24", sample_plan_2$`Sample ID`),]
+for (i in 1:nrow(sample_plan_2)){
+  sample_plan_2[grepl("D3", sample_plan_2$Day[i]), "treatment"][i] <- paste(sample_plan_2$treatment[i],"_D3", sep="")
+}
+for (i in 1:nrow(sample_plan_2)){
+  sample_plan_2[grepl("D10", sample_plan_2$Day[i]), "treatment"][i] <- paste(sample_plan_2$treatment[i],"_D10", sep="")
+}
+for (i in 1:nrow(sample_plan_2)){
+  sample_plan_2[grepl("D22", sample_plan_2$Day[i]), "treatment"][i] <- paste(sample_plan_2$treatment[i],"_D22", sep="")
+}
+counts_2 <- counts[,sample_plan_2$new_name]
+deseq_object_2 <-DESeqDataSetFromMatrix(countData = counts_2, colData = DataFrame(treatment = sample_plan_2$treatment, Time_point = factor(sample_plan_2$Time_point)), ~ treatment)
+deseq_object_2 <- estimateSizeFactors(deseq_object_2)
+deseq_object_2 <- deseq_object_2[rowSums(counts(deseq_object_2)) > 0,]
+deseq_object_2_vst <- vst(deseq_object_2, blind=TRUE)
+deseq_object_2_vst_matrix <- assay(deseq_object_2_vst)
+run_pca_2 <- PCA(t(deseq_object_2_vst_matrix), ncp=4, graph=FALSE)
+
+```
+
+### Excel Sheet
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# color by excel sheet
+fviz_pca_ind(run_pca_2, label="none", habillage=as.factor(sample_plan_2$Sheet), pointsize=3, labelsize=3, repel=T, invisible="quali") + ggtitle("PC2 vs PC1 - Grouped by Excel Sheet") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+```
+
+
+### Treatment
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# color by treatment
+fviz_pca_ind(run_pca_2, label="none", habillage=as.factor(sample_plan_2$treatment), pointsize=3, labelsize=3, repel=T, invisible="quali") + ggtitle("PC2 vs PC1 - Grouped by Treatment") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+```
+
+### Experiment
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+# color by exp
+fviz_pca_ind(run_pca_2, label="none", habillage=as.factor(sample_plan_2$Exp), pointsize=3, labelsize=2, repel=T, invisible="quali") + ggtitle("PC2 vs PC1 - Grouped by Experimental Batch") + theme(plot.title=element_text(hjust=0.5, face="bold"))
+```
+
+
+
+
+# **2. Agglomerative hierarchical clustering** {.tabset .tabset-fade .tabset-pills}
+
+## MTX vs PBS
+```{r echo=FALSE, message=FALSE, warning=FALSE, out.height="200%", out.width="200%", fig.height=11, fig.width=13}
+# Hierarchical Clustering : MTX vs PBS
+library(pheatmap)
+library(RColorBrewer)
+sample_dist <- dist(t(deseq_object_1_vst_matrix))
+cluster_all <- hclust(sample_dist, method="ward.D2")
+plot(cluster_all, hang=-1)
+```
+
+
+## Oxa/Cis vs PBS
+```{r echo=FALSE, message=FALSE, warning=FALSE, out.height="200%", out.width="200%", fig.height=11, fig.width=13}
+# Hierarchical Clustering : Oxa/Cis vs PBS
+library(pheatmap)
+library(RColorBrewer)
+sample_dist <- dist(t(deseq_object_2_vst_matrix))
+cluster_all <- hclust(sample_dist, method="ward.D2")
+plot(cluster_all, hang=-1)
+```
+
+
+
+
+
