@@ -1,0 +1,153 @@
+
+# Title: MODICED - Longitudinal expression of genes. 
+
+# In the context of the MODICED project, we want to investigate the longitudinal expression of genes involved in DNA damage, to potentially include them in the DNA damage module. To that end, I edited this Rscript, in which, firstly, I retrieve the gene expression matrix (in vitro). This matrix is then filtered out of the genes with less than 10 raw counts across all the samples, and normalized by the sequencing depth, by converting the counts to log2cpm values. Subsequently, I created a function, which retrieves the expression of your genes of interest (stored in a vector), calculates their mean expression over time, for each drug and the control, and plots them. The user is then free to arrange all the plots (one plot per gene) into a grid, and save it as a pdf.
+
+
+# This Rscript can be run locally, as well as on the Curie server.
+
+```{r}
+# Install libraries of interest
+install.packages("BiocManager")
+BiocManager::install("edgeR")
+install.packages("tidyverse")
+install.packages("gridExtra")
+```
+
+
+
+```{r}
+# Load libraries of interest
+library(edgeR)
+library(tidyverse)
+library(gridExtra)
+```
+
+
+```{r}
+
+# Load gene expression matrix and convert it into dataframe
+gene_expression_matrix_filename <- file.choose()
+gene_expression_df <- readRDS(gene_expression_matrix_filename) %>% as.data.frame()
+
+# Put gene names as rownames
+rownames(gene_expression_df) <- make.names(gene_expression_df$gene_name, unique=TRUE)
+
+# Remove gene_id, gene_name, and gene_type columns
+gene_expression_df <- gene_expression_df %>% dplyr::select(-c(1:3))
+
+# Keep genes with at least 10 counts in average across all the samples
+gene_expression_df_filtered <- gene_expression_df[rowSums(gene_expression_df) > 10,]
+
+# Convert counts into log2cpm (i.e. normalization by sequencing depth) and convert back to dataframe
+gene_expression_df_filtered_normalized <- cpm(gene_expression_df_filtered, log=TRUE) %>% as.data.frame()
+
+
+
+# This function does four things:
+# 1. Convert genes (from the vector) in uppercase to lowercase with first letter capitalized.
+# 2. Retrieve the genes from the vector for which I've got the expression values.
+# 3. For those genes, calculate their mean counts in each drug plus the control, across the five timepoints.
+# 4. Plot the longitudinal expression of those genes.
+
+
+## df is the normalized (by sequencing depth) gene expression matrix, in log2cpm.
+## genes_vector is a vector of genes (each gene is in capital letters), it can be of any length.
+
+
+# Get mean counts for each drug (+ control) across the five timepoints
+
+
+plot_longitudinal_expression_for_each_drug <- function(df, genes_vector){
+  
+  
+  # Convert gene names to lowercase with first letter capitalized
+  genes <- str_to_title(genes_vector)
+  
+  # Retrieve counts for the gene of interest
+  df_interest <- df %>% dplyr::filter(rownames(.) %in% genes)
+
+  # Check if there are missing genes in the gene expression matrix
+  if (nrow(df_interest) == 0) stop("No genes found!")
+  else if (nrow(df_interest) < length(genes)){
+    missing_genes <- setdiff(genes, rownames(df_interest))
+    warning(paste(paste(missing_genes, collapse = ", "), "not found"))
+  }
+ 
+  
+  # Get mean counts for each gene, in each drug, across the five timepoints
+  mean_counts <- df_interest %>% 
+    rownames_to_column("Gene") %>%
+    pivot_longer(-Gene) %>% 
+    separate(name, sep = "_", into = c("id", "cond", "timepoint"), remove = FALSE) %>%
+    mutate(cond = str_remove(cond, ".$"), timepoint = factor(timepoint, levels = c("3h", "6h", "12h", "18h", "24h"))) %>% 
+    summarise(v = mean(value), .by = c(Gene, cond, timepoint))
+    
+  # Create a ggplot per gene 
+  all_plots <- mean_counts %>% 
+      group_by(Gene) %>% 
+      nest() %>% 
+      rowwise() %>% 
+      mutate(g = list(ggplot(data, aes(x = timepoint, y = v, color = cond, group = cond)) + geom_line(linetype ="dotted") + geom_point()  + labs(title = Gene, x = NULL, y = "mean counts (log2CPM)") + theme_light() +  theme(title = element_text(face = "bold"))))
+  
+  
+  
+  # Return each plot (one by one)
+   return(all_plots$g)
+    
+}
+
+
+```
+
+
+
+```{r}
+# How to call the function ?
+
+## 1st input: the normalized gene expression matrix (i.e. gene_expression_df_filtered_normalized)
+## 2nd input: a vector of genes, where each gene is in capital letter (i.e. genes_vector)
+
+
+# More info about the 2nd input:
+
+# 2 scenarios:
+
+
+# 1st scenario :
+
+# If you are given a text file containing a set of genes, in the format of the text file containing the genes from the DNA damage/repair module, called list_genes_for_theo_DNAdam_repair.txt : 
+
+
+# Retrieve the vector of genes from your text file, like this:
+
+# genes_list_filename <- "....txt"
+genes_vector <- suppressWarnings(read.table(file = genes_list_filename)) %>% dplyr::rename("gene_symbol" = "V1")  %>% dplyr::pull(gene_symbol)
+
+# You are now ready to call your function
+all_plots <- plot_longitudinal_expression_for_each_drug(gene_expression_df_filtered_normalized, genes_vector)
+
+
+
+# 2nd scenario :
+
+# Otherwise, if you are not provided a set of genes, and you want to investigate the expression of genes of interest for you :
+
+# Create your vector of genes, like this:
+genes_vector <- c("...", "...", "...")
+
+# You are now ready to call your function
+all_plots <- plot_longitudinal_expression_for_each_drug(gene_expression_df_filtered_normalized, genes_vector)
+
+
+
+
+# In both scenarios, if you want to arrange your plots into a grid of plots, and save the grid as a pdf (using R), it is as follows:
+graphics.off()
+grobs <- gridExtra::marrangeGrob(all_plots, ncol = 3, nrow = 3, top = NULL)
+# filename <- "...pdf"
+ggsave(filename, plot = grobs, height = 8 , width = 12)
+
+
+```
+
