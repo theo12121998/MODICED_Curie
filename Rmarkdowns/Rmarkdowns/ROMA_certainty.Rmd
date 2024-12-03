@@ -1,0 +1,680 @@
+---
+  author: "Théo Lassale"
+editor_options: 
+  chunk_output_type: console
+date: '`r Sys.Date()`'
+output:
+  html_document:
+  theme: flatly
+toc: true
+toc_float: true
+code_folding: hide
+---
+  
+  
+# **ROMA**{.tabset .tabset-fade .tabset-pills}
+  
+  
+```{r load_required_packages}
+library(rRoma)
+library(tidyverse)
+```
+
+
+```{r load_gmt}
+gmt_filename <- "...gmt"
+gmt_roma <- ReadGMTFile(gmt_filename)
+```
+
+
+```{r load_count_table}
+counts_filename <- "..."
+counts_in_vitro_df <- read.csv(counts_filename) %>% as.data.frame()
+rownames(counts_in_vitro_df) <- make.names(counts_in_vitro_df$gene_name, unique=TRUE)
+counts_in_vitro_df <- counts_in_vitro_df %>% dplyr::select(-c("gene_id", "gene_type","gene_name"))
+```
+
+```{r normalize_counts}
+counts_in_vitro_roma <- cpm(counts_in_vitro_df, log=TRUE)
+```
+
+
+```{r run_rRoma}
+run_roma <- rRoma.R(counts_in_vitro_roma, gmt_roma)
+roma_output_filename <- "....rds"
+roma_output_rds <- saveRDS(run_roma, file = roma_output_filename)
+```
+
+
+
+
+```{r get_shifted_modules}
+
+get_shifted_modules <- function(roma_output_filename, 
+                                ordered_shifted_modules_module_matrix_filename,  
+                                ordered_shifted_modules_sample_matrix_filename, 
+                                heatmap_activity_score_shifted_modules_filename, 
+                                nb_shifted_modules){
+  
+  # Load roma output
+  roma_output <- readRDS(roma_output_filename)
+  
+  # Remove acronym "GOBP_"
+  #rownames(roma_output$ModuleMatrix) <- gsub("GOBP_", "", rownames(roma_output$ModuleMatrix))
+  #rownames(roma_output$SampleMatrix) <- gsub("GOBP_", "", rownames(roma_output$SampleMatrix))
+  
+  
+  # Get shifted modules ordered by p-value (increasing order) + absolute median PC1 expression (decreasing order)
+  shifted_modules_module_matrix <- roma_output$ModuleMatrix %>%  
+                                   as.data.frame() %>% 
+                                   dplyr::filter(`ppv Median Exp`<= 0.05) %>% 
+                                   dplyr::arrange(`ppv Median Exp`, desc(abs(`Median Exp`)))
+  
+  
+  shifted_modules_sample_matrix <- as.data.frame(roma_output$SampleMatrix[rownames(shifted_modules_module_matrix),])
+  
+  
+  
+  # Restrict original Module and Sample matrices to the (ordered) shifted modules 
+   new_index <- match(rownames(shifted_modules_module_matrix),rownames(roma_output$ModuleMatrix))
+   roma_output$ModuleMatrix <- roma_output$ModuleMatrix[new_index,]
+   roma_output$SampleMatrix <- roma_output$SampleMatrix[new_index,]
+ 
+  
+  
+  # Plot (+Save) activity scores of the shifted modules
+  png(heatmap_activity_score_shifted_modules_filename, width=1000, height=502)
+  Plot.Genesets.Samples(roma_output, Selected =  which(roma_output$ModuleMatrix[,"ppv Median Exp"] <= 0.05)[1:nb_shifted_modules], cluster_cols = TRUE, HMTite = paste("Top",nb_shifted_modules,"shifted_modules_activity_scores",sep = "_"))
+  dev.off()
+  
+  
+  # Save restricted module and sample matrices
+  write.table(roma_output$ModuleMatrix, ordered_shifted_modules_module_matrix_filename)
+  write.table(roma_output$SampleMatrix, ordered_shifted_modules_sample_matrix_filename)
+}
+  
+```
+  
+
+
+```{r get_overdispersed_modules}
+get_overdispersed_modules <- function(roma_output_filename, ordered_overdispersed_modules_module_matrix_filename, 
+                                      ordered_overdispersed_modules_sample_matrix_filename, 
+                                      heatmap_activity_score_overdispersed_modules_filename,
+                                      nb_overdispersed_modules, 
+                                      top_30_gene_weight_activity_score_overdispersed_filename){
+  
+  # Load roma output
+  roma_output <- readRDS(roma_output_filename)
+
+  # Remove acronym "GOBP_"
+  #rownames(roma_output$ModuleMatrix) <- gsub("GOBP_", "", rownames(roma_output$ModuleMatrix))
+  #rownames(roma_output$SampleMatrix) <- gsub("GOBP_", "", rownames(roma_output$SampleMatrix))
+  
+  
+  # Get overdispersed modules ordered by p-value (increasing order) + absolute median PC1 expression (decreasing order)
+  overdispersed_modules_module_matrix <- roma_output$ModuleMatrix %>%  
+    as.data.frame() %>% 
+    dplyr::filter(`ppv L1`<= 0.05 & `ppv Median Exp` > 0.05) %>% 
+    dplyr::arrange(`ppv L1`, desc(`L1`))
+  
+  
+  overdispersed_modules_sample_matrix <- as.data.frame(roma_output$SampleMatrix[rownames(overdispersed_modules_module_matrix),])
+  
+  
+  
+  # Restrict original Module and Sample matrices to the (ordered) overdispersed modules 
+  # Restrict gene weights (+ Module Summary) to the (ordered) overdispersed modules
+  new_index <- match(rownames(overdispersed_modules_module_matrix),rownames(roma_output$ModuleMatrix))
+  roma_output$ModuleMatrix <- roma_output$ModuleMatrix[new_index,]
+  roma_output$SampleMatrix <- roma_output$SampleMatrix[new_index,]
+  roma_output$WeightList <- roma_output$WeightList[new_index]
+  roma_output$ModuleSummary <- roma_output$ModuleSummary[new_index]                                        
+  
+ 
+  # Plot (+Save) activity scores of the overdispersed modules
+  png(heatmap_activity_score_overdispersed_modules_filename, width=1000, height=502)
+  Plot.Genesets.Samples(roma_output, Selected =  which(roma_output$ModuleMatrix[,"ppv L1"] <= 0.05)[1:nb_overdispersed_modules], cluster_cols = TRUE, HMTite = paste("Top",nb_overdispersed_modules,"overdispersed_modules_activity_scores",sep = "_"))
+  dev.off()
+  
+  
+  # Get top contributing genes (top 30) to activity scores of overdispersed modules
+  for (i in 1:nb_overdispersed_modules){
+    add_graph_number <- paste0(unlist(strsplit(top_30_gene_weight_activity_score_overdispersed_filename, ".png")), "_", i, ".png")
+    png(add_graph_number, width=1000, height=502)
+    PlotGeneWeight(RomaData = roma_output, PlotGenes = 30, LogExpression = FALSE, 
+                   Selected = which(roma_output$ModuleMatrix[,"ppv L1"] <= 0.05)[i])
+    dev.off()
+  }
+  
+  
+  # Save restricted module and sample matrices
+  write.table(roma_output$ModuleMatrix, ordered_overdispersed_modules_module_matrix_filename)
+  write.table(roma_output$SampleMatrix, ordered_overdispersed_modules_sample_matrix_filename)
+  
+
+}
+
+```
+
+
+```{r get_shifted_modules_in_at_least_one_setting}
+
+get_shifted_modules_at_least_one_setting <- function(roma_output_before_treatment_filename, 
+                                                     roma_output_after_treatment_blood_filename,
+                                                     roma_output_after_treatment_bone_marrow_filename,
+                                                     ordered_shifted_modules_module_matrix_before_treatment_filename,
+                                                     ordered_shifted_modules_module_matrix_after_treatment_blood_filename,
+                                                     ordered_shifted_modules_module_matrix_after_treatment_bone_marrow_filename,
+                                                     module_matrix_shifted_at_least_one_setting_filename,
+                                                     sample_matrix_shifted_at_least_one_setting_filename){
+  
+
+  # Load roma output before treatment, and get the module and sample matrices
+  roma_output_before_treatment <- readRDS(roma_output_before_treatment_filename)
+  module_matrix_before_treatment <- roma_output_before_treatment$ModuleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  sample_matrix_before_treatment <- roma_output_before_treatment$SampleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  #module_matrix_before_treatment$modules <- gsub("GOBP_", "", module_matrix_before_treatment$modules)
+  #sample_matrix_before_treatment$modules <- gsub("GOBP_", "", sample_matrix_before_treatment$modules)
+  
+  
+  # Load roma output after treatment (blood), and get the module and sample matrices
+  roma_output_after_treatment_blood <- readRDS(roma_output_after_treatment_blood_filename)
+  module_matrix_after_treatment_blood <- roma_output_after_treatment_blood$ModuleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  sample_matrix_after_treatment_blood <- roma_output_after_treatment_blood$SampleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+ #module_matrix_after_treatment_blood$modules <- gsub("GOBP_", "", module_matrix_after_treatment_blood$modules)
+ #sample_matrix_after_treatment_blood$modules <- gsub("GOBP_", "", sample_matrix_after_treatment_blood$modules)
+  
+  
+  # Load roma output after treatment (bone marrow), and get the module and sample matrices
+  roma_output_after_treatment_bone_marrow <- readRDS(roma_output_after_treatment_bone_marrow_filename)
+  module_matrix_after_treatment_bone_marrow <- roma_output_after_treatment_bone_marrow$ModuleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  sample_matrix_after_treatment_bone_marrow <- roma_output_after_treatment_bone_marrow$SampleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  #module_matrix_after_treatment_bone_marrow$modules <- gsub("GOBP_", "", module_matrix_after_treatment_bone_marrow$modules)
+  #sample_matrix_after_treatment_bone_marrow$modules <- gsub("GOBP_", "", sample_matrix_after_treatment_bone_marrow$modules)
+  
+  
+  # Get shared modules across the 3 settings: before, after treatment (blood) and after treatment (bone marrow)
+  module_matrix_before_after_treatment_blood <- inner_join(module_matrix_before_treatment[, c("modules","Median Exp","ppv Median Exp")], module_matrix_after_treatment_blood[, c("modules","Median Exp","ppv Median Exp")], by = "modules")
+  module_matrix_all_settings <- inner_join(module_matrix_before_after_treatment_blood, module_matrix_after_treatment_bone_marrow[, c("modules","Median Exp","ppv Median Exp")], by="modules")
+  
+  sample_matrix_before_after_treatment_blood <- inner_join(sample_matrix_before_treatment, sample_matrix_after_treatment_blood, by="modules")
+  sample_matrix_all_settings <- inner_join(sample_matrix_before_after_treatment_blood, sample_matrix_after_treatment_bone_marrow, by="modules")
+
+  
+  
+  # Load module matrices of shifted modules: before, after treatment (blood), after treatment (bone marrow)
+  shifted_modules_module_matrix_before_treatment <- read.table(ordered_shifted_modules_module_matrix_before_treatment_filename) %>% rownames_to_column("modules")
+  
+  shifted_modules_module_matrix_after_treatment_blood <- read.table(ordered_shifted_modules_module_matrix_after_treatment_blood_filename) %>% rownames_to_column("modules")
+  
+  shifted_modules_module_matrix_after_treatment_bone_marrow <- read.table(ordered_shifted_modules_module_matrix_after_treatment_bone_marrow_filename) %>% rownames_to_column("modules")
+  
+ 
+  # Get the modules shifted in at least one setting (before/after treatment (blood)/after treatment (bone marrow))
+  shifted_modules_at_least_one_setting <- unique(c(shifted_modules_module_matrix_before_treatment$modules, shifted_modules_module_matrix_after_treatment_blood$modules, shifted_modules_module_matrix_after_treatment_bone_marrow$modules))
+ 
+  
+  # Update module et sample matrices
+  module_matrix_all_settings_shifted_at_least_one_setting <- module_matrix_all_settings %>% filter(modules %in% shifted_modules_at_least_one_setting)
+  sample_matrix_all_settings_shifted_at_least_one_setting <- sample_matrix_all_settings %>% filter(modules %in% shifted_modules_at_least_one_setting)
+  
+  
+  # Save module and sample matrices
+  write.table(module_matrix_all_settings_shifted_at_least_one_setting, module_matrix_shifted_at_least_one_setting_filename)
+  write.table(sample_matrix_all_settings_shifted_at_least_one_setting, sample_matrix_shifted_at_least_one_setting_filename)
+  
+  
+}
+
+```
+
+
+
+```{r get_overdispersed_modules_in_at_least_one_setting}
+
+get_overdispersed_modules_at_least_one_setting <- function(roma_output_before_treatment_filename, 
+                                                           roma_output_after_treatment_blood_filename,
+                                                           roma_output_after_treatment_bone_marrow_filename,
+                                                           ordered_overdispersed_modules_module_matrix_before_treatment_filename,
+                                                      ordered_overdispersed_modules_module_matrix_after_treatment_blood_filename,                                                 ordered_overdispersed_modules_module_matrix_after_treatment_bone_marrow_filename,
+                                                      module_matrix_overdispersed_at_least_one_setting_filename,               
+                                                      sample_matrix_overdispersed_at_least_one_setting_filename){
+  
+
+  # Load roma output before treatment, and get the module and sample matrices
+  roma_output_before_treatment <- readRDS(roma_output_before_treatment_filename)
+  module_matrix_before_treatment <- roma_output_before_treatment$ModuleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  sample_matrix_before_treatment <- roma_output_before_treatment$SampleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  #module_matrix_before_treatment$modules <- gsub("GOBP_", "", module_matrix_before_treatment$modules)
+  #sample_matrix_before_treatment$modules <- gsub("GOBP_", "", sample_matrix_before_treatment$modules)
+  
+  
+  # Load roma output after treatment (blood), and get the module and sample matrices
+  roma_output_after_treatment_blood <- readRDS(roma_output_after_treatment_blood_filename)
+  module_matrix_after_treatment_blood <- roma_output_after_treatment_blood$ModuleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  sample_matrix_after_treatment_blood <- roma_output_after_treatment_blood$SampleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  #module_matrix_after_treatment_blood$modules <- gsub("GOBP_", "", module_matrix_after_treatment_blood$modules)
+  #sample_matrix_after_treatment_blood$modules <- gsub("GOBP_", "", sample_matrix_after_treatment_blood$modules)
+  
+  
+  # Load roma output after treatment (bone marrow), and get the module and sample matrices
+  roma_output_after_treatment_bone_marrow <- readRDS(roma_output_after_treatment_bone_marrow_filename)
+  module_matrix_after_treatment_bone_marrow <- roma_output_after_treatment_bone_marrow$ModuleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  sample_matrix_after_treatment_bone_marrow <- roma_output_after_treatment_bone_marrow$SampleMatrix %>% as.data.frame() %>% rownames_to_column("modules")
+  #module_matrix_after_treatment_bone_marrow$modules <- gsub("GOBP_", "", module_matrix_after_treatment_bone_marrow$modules)
+  #sample_matrix_after_treatment_bone_marrow$modules <- gsub("GOBP_", "", sample_matrix_after_treatment_bone_marrow$modules)
+  
+  
+   # Get shared modules across the 3 settings: before, after treatment (blood) and after treatment (bone marrow)
+  module_matrix_before_after_treatment_blood <- inner_join(module_matrix_before_treatment[, c("modules","L1","ppv L1")], module_matrix_after_treatment_blood[, c("modules","L1","ppv L1")], by = "modules")
+  module_matrix_all_settings <- inner_join(module_matrix_before_after_treatment_blood, module_matrix_after_treatment_bone_marrow[, c("modules","L1","ppv L1")], by="modules")
+  
+  sample_matrix_before_after_treatment_blood <- inner_join(sample_matrix_before_treatment, sample_matrix_after_treatment_blood, by="modules")
+  sample_matrix_all_settings <- inner_join(sample_matrix_before_after_treatment_blood, sample_matrix_after_treatment_bone_marrow, by="modules")
+
+  
+  
+  # Load module matrices of overdispersed modules: before, after treatment (blood), after treatment (bone marrow)
+  overdispersed_modules_module_matrix_before_treatment <- read.table(ordered_overdispersed_modules_module_matrix_before_treatment_filename) %>% rownames_to_column("modules")
+  
+  overdispersed_modules_module_matrix_after_treatment_blood <- read.table(ordered_overdispersed_modules_module_matrix_after_treatment_blood_filename) %>% rownames_to_column("modules")
+  
+  overdispersed_modules_module_matrix_after_treatment_bone_marrow <- read.table(ordered_overdispersed_modules_module_matrix_after_treatment_bone_marrow_filename) %>% rownames_to_column("modules")
+  
+ 
+  # Get the modules overdispersed in at least one setting (before/after treatment (blood)/after treatment (bone marrow))
+  overdispersed_modules_at_least_one_setting <- unique(c(overdispersed_modules_module_matrix_before_treatment$modules, overdispersed_modules_module_matrix_after_treatment_blood$modules, overdispersed_modules_module_matrix_after_treatment_bone_marrow$modules))
+ 
+  
+  # Update module et sample matrices
+  module_matrix_all_settings_overdispersed_at_least_one_setting <- module_matrix_all_settings %>% filter(modules %in% overdispersed_modules_at_least_one_setting)
+  sample_matrix_all_settings_overdispersed_at_least_one_setting <- sample_matrix_all_settings %>% filter(modules %in% overdispersed_modules_at_least_one_setting)
+  
+  
+  # Save module and sample matrices
+  write.table(module_matrix_all_settings_overdispersed_at_least_one_setting, module_matrix_overdispersed_at_least_one_setting_filename)
+  write.table(sample_matrix_all_settings_overdispersed_at_least_one_setting, sample_matrix_overdispersed_at_least_one_setting_filename)
+  
+}
+
+```
+
+
+
+
+# Calling
+
+```{r get_gmt_file}
+gmt_filename <- "...gmt"
+gmt_roma <- ReadGMTFile(gmt_filename)
+```
+    
+
+# **Treatment 1** 
+
+
+## Before treatment (blood sampling)
+
+```{r get_count_table}
+counts_before_treatment1_filename <- "...csv"
+counts_in_vitro_before_treatment1_df <- read.csv(counts_before_treatment1_filename) %>% as.data.frame()
+rownames(counts_in_vitro_before_treatment1_df) <- make.names(counts_in_vitro_before_treatment1_df$gene_name, unique=TRUE)
+counts_in_vitro_before_treatment1_df <- counts_in_vitro_before_treatment1_df %>% dplyr::select(-c("gene_id", "gene_type","gene_name"))
+```
+
+
+```{r normalize_counts}
+counts_in_vitro_before_treatment1_roma <- cpm(counts_in_vitro_before_treatment1_df, log=TRUE)
+```
+
+
+```{r run_rRoma}
+run_roma_before_treatment1 <- rRoma.R(counts_in_vitro_before_treatment1_roma, gmt_roma)
+roma_output_rds_before_treatment1 <- saveRDS(run_roma_before_treatment1, file = roma_output_before_treatment1_filename)
+```
+
+
+```{r get_shifted_overdispersed_modules}
+roma_output_before_treatment1_filename <- "...rds"
+ordered_shifted_modules_module_matrix_before_treatment1_filename <- "...txt"
+ordered_shifted_modules_sample_matrix_before_treatment1_filename <- "...txt"
+ordered_overdispersed_modules_module_matrix_before_treatment1_filename <- "...txt"
+ordered_overdispersed_modules_sample_matrix_before_treatment1_filename <- "...txt"
+
+heatmap_activity_score_shifted_modules_before_treatment1_filename <- "...png"
+heatmap_activity_score_overdispersed_modules_before_treatment1_filename <- "...png"
+nb_shifted_modules <- "..."
+nb_overdispersed_modules <- "..."
+top_30_gene_weight_overdispersed_modules_before_treatment1_filename <- "...png"
+
+
+get_shifted_modules(roma_output_before_treatment1_filename, 
+                    ordered_shifted_modules_module_matrix_before_treatment1_filename,  
+                    ordered_shifted_modules_sample_matrix_before_treatment1_filename, 
+                    heatmap_activity_score_shifted_modules_before_treatment1_filename, 
+                    nb_shifted_modules)
+
+
+get_overdispersed_modules(roma_output_before_treatment1_filename,
+                          ordered_overdispersed_modules_module_matrix_before_treatment1_filename,  
+                          ordered_overdispersed_modules_sample_matrix_before_treatment1_filename, 
+                          heatmap_activity_score_overdispersed_modules_before_treatment1_filename, 
+                          nb_overdispersed_modules,
+                          top_30_gene_weight_overdispersed_modules_before_treatment1_filename)
+```
+
+
+
+
+## After treatment (blood sampling)
+
+```{r get_count_table}
+counts_after_treatment1_blood_after_treatment_filename <- "...csv"
+counts_in_vitro_after_treatment1_blood_df <- read.csv(counts_after_treatment1_blood_filename) %>% as.data.frame()
+rownames(counts_in_vitro_after_treatment1_blood_df) <- make.names(counts_in_vitro_after_treatment1_blood_df$gene_name, unique=TRUE)
+counts_in_vitro_after_treatment1_blood_df <- counts_in_vitro_after_treatment1_blood_df %>% dplyr::select(-c("gene_id", "gene_type","gene_name"))
+```
+
+
+```{r normalize_counts}
+counts_in_vitro_after_treatment1_blood_roma <- cpm(counts_in_vitro_after_treatment1_blood_df, log=TRUE)
+```
+
+
+```{r run_rRoma}
+run_roma_after_treatment1_blood <- rRoma.R(counts_in_vitro_after_treatment1_blood_roma, gmt_roma)
+roma_output_rds_after_treatment1_blood <- saveRDS(run_roma_after_treatment1_blood, file = roma_output_after_treatment1_blood_filename)
+```
+
+
+```{r get_shifted_overdispersed_modules}
+roma_output_after_treatment1_blood_filename <- "...rds"
+ordered_shifted_modules_module_matrix_after_treatment1_blood_filename <- "...txt"
+ordered_shifted_modules_sample_matrix_after_treatment1_blood_filename <- "...txt"
+ordered_overdispersed_modules_module_matrix_after_treatment1_blood_filename <- "...txt"
+ordered_overdispersed_modules_sample_matrix_after_treatment1_blood_filename <- "...txt"
+
+heatmap_activity_score_shifted_modules_after_treatment1_blood_filename <- "...png"
+heatmap_activity_score_overdispersed_modules_after_treatment1_blood_filename <- "...png"
+nb_shifted_modules <- "..."
+nb_overdispersed_modules <- "..."
+top_30_gene_weight_overdispersed_modules_after_treatment1_blood_filename <- "...png"
+
+
+get_shifted_modules(roma_output_after_treatment1_blood_filename,
+                    ordered_shifted_modules_module_matrix_after_treatment1_blood_filename,
+                    ordered_shifted_modules_sample_matrix_after_treatment1_blood_filename,
+                    heatmap_activity_score_shifted_modules_after_treatment1_blood_filename, 
+                    nb_shifted_modules)
+
+
+get_overdispersed_modules(roma_output_after_treatment1_blood_filename,
+                          ordered_overdispersed_modules_module_matrix_after_treatment1_blood_filename,
+                          ordered_overdispersed_modules_sample_matrix_after_treatment1_blood_filename,
+                          heatmap_activity_score_overdispersed_modules_after_treatment1_blood_filename, 
+                          nb_overdispersed_modules,
+                          top_30_gene_weight_overdispersed_modules_after_treatment1_blood_filename)
+```
+
+
+
+
+## After treatment (bone marrow sampling)
+
+```{r get_count_table}
+counts_after_treatment1_bone_marrow_filename <- "...csv"
+counts_in_vitro_after_treatment1_bone_marrow_df <- read.csv(counts_after_treatment1_bone_marrow_filename) %>% as.data.frame()
+rownames(counts_in_vitro_after_treatment1_bone_marrow_df) <- make.names(counts_in_vitro_after_treatment1_bone_marrow_df$gene_name, unique=TRUE)
+counts_in_vitro_after_treatment1_bone_marrow_df <- counts_in_vitro_after_treatment1_bone_marrow_df %>% dplyr::select(-c("gene_id", "gene_type","gene_name"))
+```
+
+
+```{r normalize_counts}
+counts_in_vitro_after_treatment1_bone_marrow_roma <- cpm(counts_in_vitro_after_treatment1_bone_marrow_df, log=TRUE)
+```
+
+
+```{r run_rRoma}
+run_roma_after_treatment1_bone_marrow <- rRoma.R(counts_in_vitro_after_treatment1_bone_marrow_roma, gmt_roma)
+roma_output_rds_after_treatment1_bone_marrow <- saveRDS(run_roma_after_treatment1_bone_marrow, file = roma_output_after_treatment1_bone_marrow_filename)
+```
+
+
+```{r get_shifted_overdispersed_modules}
+roma_output_after_treatment1_bone_marrow_filename <- "...rds"
+ordered_shifted_modules_module_matrix_after_treatment1_bone_marrow_filename <- "...txt"
+ordered_shifted_modules_sample_matrix_after_treatment1_bone_marrow_filename <- "...txt"
+ordered_overdispersed_modules_module_matrix_after_treatment1_bone_marrow_filename <- "...txt"
+ordered_overdispersed_modules_sample_matrix_after_treatment1_bone_marrow_filename <- "...txt"
+
+heatmap_activity_score_shifted_modules_after_treatment1_bone_marrow_filename <- "...png"
+heatmap_activity_score_overdispersed_modules_after_treatment1_bone_marrow_filename <- "...png"
+nb_shifted_modules <- "..."
+nb_overdispersed_modules <- "..."
+top_30_gene_weight_overdispersed_modules_after_treatment1_bone_marrow_filename <- "...png"
+
+get_shifted_modules(roma_output_after_treatment1_bone_marrow_filename,
+                    ordered_shifted_modules_module_matrix_after_treatment1_bone_marrow_filename,  
+                    ordered_shifted_modules_sample_matrix_after_treatment1_bone_marrow_filename, 
+                    heatmap_activity_score_shifted_modules_after_treatment1_bone_marrow_filename, 
+                    nb_shifted_modules)
+
+
+get_overdispersed_modules(roma_output_after_treatment1_bone_marrow_filename,
+                          ordered_overdispersed_modules_module_matrix_after_treatment1_bone_marrow_filename,  
+                          ordered_overdispersed_modules_sample_matrix_after_treatment1_bone_marrow_filename, 
+                          heatmap_activity_score_overdispersed_modules_after_treatment1_bone_marrow_filename,
+                          nb_overdispersed_modules,
+                          top_30_gene_weight_overdispersed_modules_after_treatment1_bone_marrow_filename)
+```
+
+
+
+## All settings (before/after treatment (blood)/ after treatment (bone marrow))
+
+
+```{r get_shifted_modules_at_least_one_setting}
+roma_output_before_treatment1_filename <- "...rds"
+roma_output_after_treatment1_blood_filename <- "...rds"
+roma_output_after_treatment1_bone_marrow_filename <- "...rds"
+ordered_shifted_modules_module_matrix_before_treatment1_filename <- "...txt"
+ordered_shifted_modules_module_matrix_after_treatment1_blood_filename <- "...txt"
+ordered_shifted_modules_module_matrix_after_treatment1_bone_marrow_filename <- "...txt"
+module_matrix_modules_shifted_at_least_one_setting_filename <- "...txt"
+sample_matrix_modules_shifted_at_least_one_setting_filename <- "...txt"
+
+
+get_shifted_modules_at_least_one_setting(roma_output_before_treatment1_filename,
+                                         roma_output_after_treatment1_blood_filename,
+                                         roma_output_after_treatment1_bone_marrow_filename,
+                                         ordered_shifted_modules_module_matrix_before_treatment1_filename,
+                                         ordered_shifted_modules_module_matrix_after_treatment1_blood_filename,
+                                         ordered_shifted_modules_module_matrix_after_treatment1_bone_marrow_filename,
+                                         module_matrix_modules_shifted_at_least_one_setting_filename,
+                                         sample_matrix_modules_shifted_at_least_one_setting_filename
+                                         )
+  
+  
+```
+  
+  
+
+```{r get_overdispersed_modules_at_least_one_setting}
+roma_output_before_treatment1_filename <- "...rds"
+roma_output_after_treatment1_blood_filename <- "...rds"
+roma_output_after_treatment1_bone_marrow_filename <- "...rds"
+ordered_overdisp_modules_module_matrix_before_treatment1_filename <- "...txt"
+ordered_overdisp_modules_module_matrix_after_treatment1_blood_filename <- "...txt"
+ordered_overdisp_modules_module_matrix_after_treatment1_bm_filename <- "...txt"
+module_matrix_modules_overdispersed_at_least_one_setting_filename <- "...txt"
+sample_matrix_modules_overdispersed_at_least_one_setting_filename <- "...txt"
+
+get_overdispersed_modules_at_least_one_setting(roma_output_before_treatment1_filename,
+                                               roma_output_after_treatment1_blood_filename,
+                                               roma_output_after_treatment1_bone_marrow_filename,
+                                               ordered_overdisp_modules_module_matrix_before_treatment1_filename,
+                                               ordered_overdisp_modules_module_matrix_after_treatment1_blood_filename,
+                                               ordered_overdisp_modules_module_matrix_after_treatment1_bm_filename,
+                                               module_matrix_modules_overdispersed_at_least_one_setting_filename,
+                                               sample_matrix_modules_overdispersed_at_least_one_setting_filename)
+  
+  
+  
+```
+  
+
+
+
+
+# Validation of the code with roma files from MODICED ---> it works
+```{r}
+roma_output_MTX_3h <- readRDS("Bulk_RNA_in_vitro/in_vitro_results/roma_output_MTX_3h.rds")
+roma_output_MTX_6h <- readRDS("Bulk_RNA_in_vitro/in_vitro_results/roma_output_MTX_6h.rds")
+roma_output_MTX_12h <- readRDS("Bulk_RNA_in_vitro/in_vitro_results/roma_output_MTX_12h.rds")
+
+
+
+roma_output_before_treatment1_filename <- "Bulk_RNA_in_vitro/in_vitro_results/roma_output_MTX_3h.rds"
+roma_output_after_treatment1_blood_filename <- "Bulk_RNA_in_vitro/in_vitro_results/roma_output_MTX_6h.rds"
+roma_output_after_treatment1_bone_marrow_filename <- "Bulk_RNA_in_vitro/in_vitro_results/roma_output_MTX_12h.rds"
+
+
+ordered_shifted_modules_module_matrix_before_treatment1_filename <- "test_roma_script/test_roma_mtx_3h_shifted_modules_module_matrix.txt"
+ordered_shifted_modules_sample_matrix_before_treatment1_filename <- "test_roma_script/test_roma_mtx_3h_shifted_modules_sample_matrix.txt"
+
+
+heatmap_activity_score_shifted_modules_before_treatment1_filename <- "test_roma_script/test_roma_mtx_3h_heatmap_activity_score_shifted.png"
+
+
+ordered_shifted_modules_module_matrix_after_treatment1_blood_filename <- "test_roma_script/test_roma_mtx_6h_shifted_modules_module_matrix.txt"
+ordered_shifted_modules_sample_matrix_after_treatment1_blood_filename <- "test_roma_script/test_roma_mtx_6h_shifted_modules_sample_matrix.txt"
+
+
+heatmap_activity_score_shifted_modules_after_treatment1_blood_filename <- "test_roma_script/test_roma_mtx_6h_heatmap_activity_score_shifted.png"
+
+
+ordered_shifted_modules_module_matrix_after_treatment1_bone_marrow_filename <- "test_roma_script/test_roma_mtx_12h_shifted_modules_module_matrix.txt"
+ordered_shifted_modules_sample_matrix_after_treatment1_bone_marrow_filename <- "test_roma_script/test_roma_mtx_12h_shifted_modules_sample_matrix.txt"
+
+
+heatmap_activity_score_shifted_modules_after_treatment1_bone_marrow_filename <- "test_roma_script/test_roma_mtx_12h_heatmap_activity_score_shifted.png"
+
+
+
+
+
+ordered_overdispersed_modules_module_matrix_before_treatment1_filename <- "test_roma_script/test_roma_mtx_3h_overdispersed_modules_module_matrix.txt"
+ordered_overdispersed_modules_sample_matrix_before_treatment1_filename <- "test_roma_script/test_roma_mtx_3h_overdispersed_modules_sample_matrix.txt"
+
+heatmap_activity_score_overdispersed_modules_before_treatment1_filename <- "test_roma_script/test_roma_mtx_3h_heatmap_activity_score_overdispersed.png"
+
+
+ordered_overdispersed_modules_module_matrix_after_treatment1_blood_filename <- "test_roma_script/test_roma_mtx_6h_overdispersed_modules_module_matrix.txt"
+ordered_overdispersed_modules_sample_matrix_after_treatment1_blood_filename <- "test_roma_script/test_roma_mtx_6h_overdispersed_modules_sample_matrix.txt"
+
+heatmap_activity_score_overdispersed_modules_after_treatment1_blood_filename <- "test_roma_script/test_roma_mtx_6h_heatmap_activity_score_overdispersed.png"
+
+
+ordered_overdispersed_modules_module_matrix_after_treatment1_bone_marrow_filename <- "test_roma_script/test_roma_mtx_12h_overdispersed_modules_module_matrix.txt"
+ordered_overdispersed_modules_sample_matrix_after_treatment1_bone_marrow_filename <- "test_roma_script/test_roma_mtx_12h_overdispersed_modules_sample_matrix.txt"
+
+
+heatmap_activity_score_overdispersed_modules_after_treatment1_bone_marrow_filename <- "test_roma_script/test_roma_mtx_12h_heatmap_activity_score_overdispersed.png"
+
+
+
+top_30_gene_weight_overdispersed_modules_before_treatment1_filename <- "test_roma_script/top_30_gene_weight_activity_scores_mtx_3h_overdispersed.png"
+
+top_30_gene_weight_overdispersed_modules_after_treatment1_blood_filename <- "test_roma_script/top_30_gene_weight_activity_scores_mtx_6h_overdispersed.png"
+
+top_30_gene_weight_overdispersed_modules_after_treatment1_bone_marrow_filename <- "test_roma_script/top_30_gene_weight_activity_scores_mtx_12h_overdispersed.png"
+
+
+module_matrix_modules_shifted_at_least_one_setting_filename <- "test_roma_script/modules_shifted_at_least_one_setting_module_matrix.txt"
+sample_matrix_modules_shifted_at_least_one_setting_filename <- "test_roma_script/modules_shifted_at_least_one_setting_sample_matrix.txt"
+
+
+module_matrix_modules_overdispersed_at_least_one_setting_filename <- "test_roma_script/modules_overdispersed_at_least_one_setting_module_matrix.txt"
+sample_matrix_modules_overdispersed_at_least_one_setting_filename <- "test_roma_script/modules_overdispersed_at_least_one_setting_sample_matrix.txt"
+
+
+nb_shifted_modules <- 20
+nb_overdispersed_modules <- 20
+
+
+get_shifted_modules(roma_output_before_treatment1_filename,
+                    ordered_shifted_modules_module_matrix_before_treatment1_filename,  
+                    ordered_shifted_modules_sample_matrix_before_treatment1_filename, 
+                    heatmap_activity_score_shifted_modules_before_treatment1_filename, 
+                    nb_shifted_modules)
+
+
+get_shifted_modules(roma_output_after_treatment1_blood_filename,
+                    ordered_shifted_modules_module_matrix_after_treatment1_blood_filename,  
+                    ordered_shifted_modules_sample_matrix_after_treatment1_blood_filename, 
+                    heatmap_activity_score_shifted_modules_after_treatment1_blood_filename, 
+                    nb_shifted_modules)
+
+
+
+get_shifted_modules(roma_output_after_treatment1_bone_marrow_filename,
+                    ordered_shifted_modules_module_matrix_after_treatment1_bone_marrow_filename,  
+                    ordered_shifted_modules_sample_matrix_after_treatment1_bone_marrow_filename, 
+                    heatmap_activity_score_shifted_modules_after_treatment1_bone_marrow_filename, 
+                    nb_shifted_modules)
+
+
+
+
+get_overdispersed_modules(roma_output_before_treatment1_filename,
+                    ordered_overdispersed_modules_module_matrix_before_treatment1_filename,  
+                    ordered_overdispersed_modules_sample_matrix_before_treatment1_filename, 
+                    heatmap_activity_score_overdispersed_modules_before_treatment1_filename, 
+                    nb_overdispersed_modules,
+                    top_30_gene_weight_overdispersed_modules_before_treatment1_filename)
+
+
+get_overdispersed_modules(roma_output_after_treatment1_blood_filename,
+                    ordered_overdispersed_modules_module_matrix_after_treatment1_blood_filename,  
+                    ordered_overdispersed_modules_sample_matrix_after_treatment1_blood_filename, 
+                    heatmap_activity_score_overdispersed_modules_after_treatment1_blood_filename, 
+                    nb_overdispersed_modules,
+                    top_30_gene_weight_overdispersed_modules_after_treatment1_blood_filename)
+
+
+get_overdispersed_modules(roma_output_after_treatment1_bone_marrow_filename,
+                    ordered_overdispersed_modules_module_matrix_after_treatment1_bone_marrow_filename,  
+                    ordered_overdispersed_modules_sample_matrix_after_treatment1_bone_marrow_filename, 
+                    heatmap_activity_score_overdispersed_modules_after_treatment1_bone_marrow_filename, 
+                    nb_overdispersed_modules,
+                    top_30_gene_weight_overdispersed_modules_after_treatment1_bone_marrow_filename)
+
+
+
+
+
+get_shifted_modules_at_least_one_setting(roma_output_before_treatment1_filename,
+                                         roma_output_after_treatment1_blood_filename,
+                                         roma_output_after_treatment1_bone_marrow_filename,
+                                         ordered_shifted_modules_module_matrix_before_treatment1_filename,
+                                         ordered_shifted_modules_module_matrix_after_treatment1_blood_filename,
+                                         ordered_shifted_modules_module_matrix_after_treatment1_bone_marrow_filename,
+                                         module_matrix_modules_shifted_at_least_one_setting_filename,
+                                         sample_matrix_modules_shifted_at_least_one_setting_filename
+                                         )
+
+
+get_overdispersed_modules_at_least_one_setting(roma_output_before_treatment1_filename,
+                                               roma_output_after_treatment1_blood_filename,
+                                               roma_output_after_treatment1_bone_marrow_filename,
+                                               ordered_overdispersed_modules_module_matrix_before_treatment1_filename,
+                                               ordered_overdispersed_modules_module_matrix_after_treatment1_blood_filename,
+                                             ordered_overdispersed_modules_module_matrix_after_treatment1_bone_marrow_filename,
+                                               module_matrix_modules_overdispersed_at_least_one_setting_filename,
+                                               sample_matrix_modules_overdispersed_at_least_one_setting_filename)
+
+```
+
+
+
