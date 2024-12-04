@@ -1,23 +1,67 @@
 ---
-title: "interactive_markdown_for_my_analysis"
-output: html_document
-date: "2024-07-30"
+title: "Workflow for bulk RNA-seq analysis"
+date: "04-12-2024"
 editor_options: 
   chunk_output_type: console
+output: 
+  html_document:
+    toc: true
+    theme: cerulean
+    toc_float: true
 ---
 
 
 
-# I come up with RNA sequencing data (in vitro) at different timepoints:
+
+# **1. Data preparation**
 
 
-# First, I export the count matrix (from the preprocessing results) and my sample plan, and prepare them for further analysis.
+```{r eval=FALSE, echo=TRUE}
+
+# Install libraries of interest
+install.packages("tidyverse")
+install.packages("BiocManager")
+BiocManager::install("biomaRt")
+BiocManager::install("scater")
+install.packages("devtools")
+devtools::install_github("sysbio-curie/rRoma")
+devtools::install_github("husson/FactoMineR")
+BiocManager::install("OmnipathR")
+BiocManager::install("decoupleR")
+BiocManager::install("ComplexHeatmap")
+BiocManager::install("edgeR")
+BiocManager::install("DESeq2")
+install.packages("patchwork")
+install.packages("factoextra")
 
 
-## How do I proceed ?
+
+# Load the libraries of interest
+library(tidyverse)
+library(rRoma)
+library(OmnipathR)
+library(decoupleR)
+library(patchwork)
+library(ComplexHeatmap)
+library(edgeR)
+library(DESeq2)
+library(factoextra)
+library(FactoMineR)
+```
 
 
-```{r}
+
+
+```{r eval=FALSE, echo=TRUE}
+
+## I come up with RNA sequencing data (in vitro) at different timepoints:
+
+
+### First, I export the count matrix (from the preprocessing results) and my sample plan, and prepare them for further analysis.
+
+
+#### How do I proceed ?
+
 # Load sample plan
 sample_plan_in_vitro_df <- readRDS("~/MODICED_link/Bulk_RNA_in_vitro/preprocessing_in_vitro_RNA/sample_plan_in_vitro_for_analysis.rds") %>% as.data.frame()
 attach(sample_plan_in_vitro_df)
@@ -70,15 +114,17 @@ counts_in_vitro_df <- counts_in_vitro_df[, c("gene_id", "gene_type", "gene_name"
 ```
 
 
+# **2. Unsupervised analysis (example of PCA)**
 
+
+
+```{r eval=FALSE, echo=TRUE}
 
 # Without prior knowldege, I want to explore my data, and see which samples are similar to each other and if there is any sample standing out from the others (i.e. outliers)
 
 
 ## How do I proceed ?
 
-
-```{r run_pca}
 # for PCA
 library(FactoMineR)
 
@@ -128,14 +174,17 @@ fviz_pca_ind(run_pca, axis = c(1,3), label="ind", habillage = as.factor(sample_p
 ```
 
 
+# **3. Differential gene expression analysis**
+
+
+
+```{r eval=FALSE, echo=TRUE}
+## DEA
+
 # Now, I want to statistically evaluate the effect of each drug, at each timepoint.
 
 
 ## How do I proceed ?
-
-
-```{r}
-## DEA
 
 library(edgeR)
 
@@ -171,7 +220,7 @@ fit_dea <- lmFit(counts_for_gautier, dsgn)
 # Prepare contrasts (i.e. sample groups) to compare for differential analysis 
 
 # At a given timepoint: 3h.
-# Three drugs: MTX (for MitCISntrone), CIS (for CISliplatin), CIS (for Cisplatin).
+# Three drugs: MTX (for Mitoxantrone), CIS (for Cisplatin), CIS (for Cisplatin).
 contrast_for_dea_3h <- makeContrasts(MTX_3h_vs_Control_3h = MTX_3h - Control_3h, CIS_3h_vs_Control_3h = CIS_3h - Control_3h, Cis_vs_Control_3h = CIS_3h - Control_3h, levels=dsgn)
 
 
@@ -255,19 +304,16 @@ get_results_dea <- function(fit_contrast, coef_interest, all_genes_filename, up_
 
 }
 
-```
-
 
 # So if I want to evaluate the effect of a certain drug at a certain timepoint, such as Mitoxantrone at 3h.
 
 
 ## How do I proceed ?
 
-
-```{r}
 # Call the function written above
 get_results_dea(fit_contrast_3h, "MTX_3h_vs_Control_3h", "top_table_genes_MTX_3h_vs_Control_3h.csv", "up_reg_genes_MTX_3h_vs_Control_3h.csv", "down_reg_genes_MTX_3h_vs_Control_3h.csv", "up_and_down_reg_genes_MTX_3h_vs_Control_3h.csv", "all_diff_genes_MTX_3h_vs_Control_3h.csv","Volcano plot: MTX_3h_vs_Control_3h", "Volcano_plot_MTX_3h_vs_Control_3h.pdf", "Volcano_plot_MTX_3h_vs_Control_3h_widget.html")
-```
+
+
 
 
 
@@ -276,8 +322,6 @@ get_results_dea(fit_contrast_3h, "MTX_3h_vs_Control_3h", "top_table_genes_MTX_3h
 
 ## How do I proceed ?
 
-
-```{r}
 # for visualization
 library(ggvenn)
 
@@ -313,17 +357,12 @@ get_venn_diagram_intersect_degs <- function(fit_contrast, timepoint, coef_intere
 get_venn_diagram_intersect_degs(fit_contrast_3h, "3h", MTX_3h_vs_Control_3h, OXA_3h_vs_Control_3h, CIS_3h_vs_Control_3h)
 
 
-```
 
-
-
-# If you want to evaluate the effect of a certain drug over another drug, such as Cisplatin vs Oxaliplatin or/and Cisplatin vs Mitoxantrone, at a specific timpoint (3h for example)
+# If you want to evaluate the effect of a certain drug over another drug, such as Cisplatin vs Oxaliplatin or/and Cisplatin vs Mitoxantrone, at a specific timepoint (3h for example)
 
 
 ## How do I proceed ?
 
-
-```{r}
 
 # Specify sample groups to compare 
 contrasts_for_dea_3h_drug_vs_drug <- makeContrasts(CIS_3h_vs_MTX_3h = CIS_3h - MTX_3h, CIS_3h_vs_OXA_3h = CIS_3h - OXA_3h, levels = dsgn)
@@ -345,16 +384,14 @@ get_results_dea(fit_contrast_3h_drug_vs_drug, "CIS_3h_vs_MTX_3h", "top_table_gen
 # CIS vs OXA
 get_results_dea(fit_contrast_3h_drug_vs_drug, "CIS_3h_vs_OXA_3h", "top_table_genes_CIS_3h_vs_OXA_3h.csv", "up_reg_genes_CIS_3h_vs_OXA_3h.csv", "down_reg_genes_CIS_3h_vs_OXA_3h.csv", "up_and_down_reg_genes_CIS_3h_vs_OXA_3h.csv", "all_diff_genes_CIS_3h_vs_OXA_3h.csv","Volcano plot: CIS_3h_vs_OXA_3h", "Volcano_plot_CIS_3h_vs_OXA_3h.pdf", "Volcano_plot_CIS_3h_vs_OXA_3h_widget.html")
 
-```
 
 
-# If I want to evaluate the effect of time for a given drug.
+# If now I want to evaluate the effect of time for a given drug.
 # For example, I want to see if there are some genes for which their expression change between 12h and 6h, in cell lines treated with Mitoxantrone (MTX)
 
 # How do I proceed ?
 
 
-```{r}
 # Prepare contrast for differential analysis
 contrasts_dea_MTX_all_timepoints <- makeContrasts(MTX_6h_vs_MTX_3h = MTX_6h - MTX_3h, MTX_12h_vs_MTX_6h = MTX_12h - MTX_6h, MTX_18h_vs_MTX_12h = MTX_18h - MTX_12h, MTX_24h_vs_MTX_18h = MTX_24h - MTX_18h, levels=dsgn)
 
@@ -386,7 +423,10 @@ get_results_dea(fit_contrast_OXA, "OXA_18h_vs_OXA_6h", "top_table_genes_OXA_18h_
 ```
 
 
+# **4. Pathway enrichment analysis**
 
+
+```{r eval=FALSE, echo=TRUE}
 
 
 # If now I aim to evaluate the effect of the drugs at at pathway level, at a specific timepoint, such as 3h.
@@ -403,8 +443,6 @@ get_results_dea(fit_contrast_OXA, "OXA_18h_vs_OXA_6h", "top_table_genes_OXA_18h_
 
 ### How do I proceed ?
 
-
-```{r}
 # Function for visualization of enriched GO terms
 # Top 20 are plotted (for visualization purpose)
 enrich_plot_go <- function(test){
@@ -441,10 +479,8 @@ theme(axis.text= element_text(face = "bold")) +
 theme(axis.title.x = element_text(size = 9))
 }
 }
-```
 
 
-```{r}
 # Get enrichment results using GO terms + plot them
 # Enrichment ran on the up-reg genes and down-reg genes, separately.
 get_go_results <- function(diff_genes_filename, enriched_go_terms_up_reg_genes_filename, enriched_go_terms_down_reg_genes_filename, dotplot_enriched_go_terms_up_reg_genes_filename, dotplot_enriched_go_terms_down_reg_genes_filename){
@@ -532,9 +568,6 @@ get_go_results(diff_genes_filename = "/data/users/tlassale/MODICED_link/Bulk_RNA
                enriched_go_terms_down_reg_genes_filename = "/data/users/tlassale/MODICED_link/Bulk_RNA_in_vitro/in_vitro_results/enriched_go_terms_MTX(3h)_vs_PBS(3h)_down_genes.csv")
 
 
-```
-
-
 
 
 
@@ -544,7 +577,7 @@ get_go_results(diff_genes_filename = "/data/users/tlassale/MODICED_link/Bulk_RNA
 
 # How do I proceed ?
 
-```{r}
+
 
  # Venn diagram showing the number of up-regulated pathways overlapping across time (+ save it)
 get_venn_diagram_for_intersect_up_regulated_pathways <- function(drug, timepoint1, timepoint2, timepoint3, timepoint4, timepoint5){
@@ -617,11 +650,7 @@ get_venn_diagram_for_intersect_up_regulated_pathways("MTX", "3h", "6h", "12h", "
 # Few comments
 # Here I looked at the intersection of up-regulated pathways across my 5 timepoints, but if you are only interest in a restricted number of timepoints, you are free to rewrite this function, by changing the number of timepoints as an argument of the function.
 # Here I looked at the up-regulated pathways, but we could do the same for down-regulated pathways.
-```
-
-
-
-
+  
 
 
 
@@ -631,7 +660,7 @@ get_venn_diagram_for_intersect_up_regulated_pathways("MTX", "3h", "6h", "12h", "
 ## How do I proceed ?
 
 
-```{r}
+
 # Example of up-regulated pathways, but again this is the same logic for down-reg.
 get_venn_diagram_for_intersect_up_regulated_pathways_same_timepoint_diffrent_drugs <- function(drug1, drug2, timepoint_interest, overlap_up_reg_pathways_drug1_drug2_timepoint_interest_filename){
   
@@ -675,10 +704,6 @@ write.csv(intersect_go_terms, paste0("/data/users/tlassale/MODICED_link/Bulk_RNA
 
 
 
-```
-
-
-
 ## If now you want to investigate the enrichment of other collection of gene sets such as Reactome or Kegg pathways, this is the same logic, what do you need to modify from the code above explicitely ?
 
 ### For Reactome database.
@@ -709,7 +734,6 @@ write.csv(intersect_go_terms, paste0("/data/users/tlassale/MODICED_link/Bulk_RNA
 # How do I proceed ?
 
 
-```{r}
 # Function providing GSEA results, including:
 # 1. A dataframe containing gsea output filtered on the enriched GO terms.
 # 2. GSEA plot for each of the enriched GO term.
@@ -777,13 +801,12 @@ run_gsea <- function(top_table_filename, directory_interest, contrast_interest){
 # I keep directory of interest as an argument (feel free to fill it in with your directory)
 run_gsea("Bulk_RNA_in_vitro/in_vitro_results/top_table_drug_control_in_vitro.csv", directory_interest, "MTX_3h_vs_Control_3h")
 
-```
 
 
-## If I want to investigate the overlap of up-reg pathways after a certain timepoint, across each treatment.
+## If now I want to investigate the overlap of up-reg pathways after a certain timepoint, across each treatment.
 # I assume that there are 3 drugs.
 
-```{r}
+
 get_Venn_diagramm_for_overlap_up_pathways <- function(top_table_filename, contrast_interest_drug1, contrast_interest_drug2, contrast_interest_drug3, drug1, drug2, drug3, timepoint_interest){
   
   
@@ -858,9 +881,6 @@ get_Venn_diagramm_for_overlap_up_pathways("Bulk_RNA_in_vitro/in_vitro_results/to
 ## If you want to retrieve these overlapping up-reg pathways across the conditions, you just need to call the intersect() function, as in the function above.
 
   
-```
-
-
 
 ## 3. Pathway activity inference using decoupleR and ROMA (Representation of module activity from omics data).
 
@@ -873,7 +893,6 @@ get_Venn_diagramm_for_overlap_up_pathways("Bulk_RNA_in_vitro/in_vitro_results/to
 # How do I proceed ?
 
 
-```{r}
 # Put gene_name as rownames
 rownames(counts_in_vitro_df) <- make.names(counts_in_vitro_df$gene_name, unique=TRUE)
 
@@ -905,16 +924,13 @@ filename <- "..."
 saveRDS(run_roma_MTX_vs_Control_24h, filename)
 
 
-```
-
-
 
 # So now that I ran the algorithm, I want to retrieve shifted and overdispersed pathways, and to plot them accordingly.
 
 # How do I proceed ?
 
 
-```{r}
+
 # Get shifted modules (here focus on HALLMARK gene sets)
 # What does this function perform ?
 # 1) Retrieve shifted modules and store them (arranged by the p-value associated to the shift)
@@ -935,7 +951,7 @@ get_shifted_modules <- function(roma_output_filename, shifted_modules_matrix_fil
   
   
   # Restrict the module matrix to the shifted modules and sort them by their p-value (+ save)
-  shifted_modules_matrix <- roma_output$ModuleMatrix %>% as.data.frame() %>% dplyr::filter(`ppv Median Exp`<= 0.05) %>% dplyr::arrange(`ppv Median Exp`) %>% rownames_to_column("shifted_modules")
+  shifted_modules_matrix <- roma_output$ModuleMatrix %>% as.data.frame() %>% dplyr::filter(`ppv Median Exp`<= 0.05) %>% dplyr::arrange(`ppv Median Exp`)%>% rownames_to_column("shifted_modules")
   write.csv(shifted_modules_matrix, shifted_modules_matrix_filename)
   
   
@@ -988,8 +1004,6 @@ get_shifted_modules <- function(roma_output_filename, shifted_modules_matrix_fil
   dev.off()
   
 }
-```
-
 
 # Get overdispersed modules (here focus on HALLMARK gene sets)
 # What does this function perform ?
@@ -997,7 +1011,7 @@ get_shifted_modules <- function(roma_output_filename, shifted_modules_matrix_fil
 # 2) Get top 50 contributing genes for the activity scores of the overdispersed pathways
 # 3) Plot (+save) the activity scores of the top 20 overdispersed modules (arranged by p-value), using roma-based function and ComplexHeatmap package.
 
-```{r}
+
 get_overdispersed_modules <- function(roma_output_filename, overdispersed_modules_matrix_filename, overdispersed_modules_matrix_top_20_filename, top_20_overdispersed_modules_roma_heatmap_filename, top_20_overdispersed_modules_complex_heatmap_filename){
   
   # Load roma output
@@ -1065,8 +1079,6 @@ get_overdispersed_modules <- function(roma_output_filename, overdispersed_module
   dev.off()
   
 }
-```
-
 
 
 
@@ -1079,7 +1091,6 @@ get_overdispersed_modules <- function(roma_output_filename, overdispersed_module
 # How do I proceed ?
 
 
-```{r}
 # Drug: MTX
 # Timepoints: 3h, 6h, 12h, 18h, 24h
 
@@ -1176,16 +1187,12 @@ get_modules_overdispersed_at_least_one_timepoint <- function(run_roma_MTX_vs_Con
   
   
 }
-```
-
-
 
 
 ## Now if I want to highlight the timepoint(s) at which the modules are overdispersed
 
 # How can I proceed ?
 
-```{r}
 ## Assuming that there are 3 replicates for each condition
 # For a given module, at the timepoint(s) where it is not overdispersed, put its activity scores in the underlying samples at 0.
 # As an example, if a module is not overdispersed between cell lines treated with MTX and those untreated (at 3h), I will not deem it as relevant and put its activity scores in the considered samples at 0.
@@ -1263,15 +1270,8 @@ put_activity_scores_not_overdispersed_at_0 <- function(run_roma_MTX_vs_Control_m
 
 
 
-```
-
-
-
 # Now if I want to visualize the activity scores of the modules overdispersed at least one timepoint (i.e. with 0 for timepoints where there is no overdispersion)
 
-
-
-```{r}
 
 
 # Load sample matrix for modules overdispersed at least one timepoint (with 0 for non-overdispersion)
@@ -1293,8 +1293,6 @@ rownames(annot_col) <- colnames(run_roma_MTX_vs_Control_sample_matrix_overdisper
 # Create pheatmap for visualization (if you need to restrict those reactome pathways to only few of those, you just need to subset from the sample matrix)
 pheatmap::pheatmap(run_roma_MTX_vs_Control_sample_matrix_overdispersed_at_least_one_time_point_for_visualization_no_control, cluster_rows = TRUE, cluster_cols = FALSE, fontsize_row = 11, fontsize_col = 11,  main="Reactome pathways overdispersed at least one timepoint", annotation_col = annot_col, sep="_", color=colorRamps::blue2red(20), show_colnames = FALSE, gp=gpar(fontsize=10))
 
-```
-
 
 
 
@@ -1304,9 +1302,6 @@ pheatmap::pheatmap(run_roma_MTX_vs_Control_sample_matrix_overdispersed_at_least_
 # So once I imported the PROGEny model from decoupleR, I want to investigate the activity of the 14 pathways in the treated cell lines.
 
 # How do I proceed ?
-
-
-```{r}
 
 
 # Function that retrieves the activity of the 14 pathways from PROGENy
@@ -1396,18 +1391,16 @@ get_pathways_activity_PROGENy <- function(timepoint_1, timepoint_2, timepoint_3,
   pathway_activity_drug_timepoint_df <- pathway_activity_drug_timepoint_df %>% column_to_rownames("pathway") %>% t() %>% scale() %>% t() 
   write.csv(pathway_activity_drug_timepoint_df, pathway_activity_drug_timepoint_df_filename, row.names = TRUE)
 }
-``` 
+
 
 # So if now I want to retrieve the activity scores of the 14 pathways in cell lines treated with a specific drug (such as Mitoxantrone) relative to control cell lines.
 
 # How do I proceed ?
 
-```{r}
+
 # Just call the above function (with MTX as an example)
 get_pathways_activity_PROGENy("3h", "6h", "12h", "18h", "24h", "MTX", "PROGENy_activity_MTX_all_timepoints.csv")
 
-
-```
 
   
 # Now if want to retrieve the activity scores of the 14 pathways across all the drugs (here MTX, OXA, and CIS) and timepoints, and plot them.
@@ -1415,7 +1408,7 @@ get_pathways_activity_PROGENy("3h", "6h", "12h", "18h", "24h", "MTX", "PROGENy_a
 
 # How can I proceed ?
 
-```{r}
+
 # Load df containing PROGENy pathway activities in MTX-treated vs control cell lines
 pathways_activity_PROGENy_MTX <- read.csv("PROGENy_activity_MTX_all_timepoints.csv")
 
@@ -1458,14 +1451,10 @@ annot_colors_all <- list(treatment=c(MTX="royalblue", OXA="firebrick", CIS = "fo
 # Create heatmap for visualization
 pathway_activity_progeny_heatmap_t_values <- ComplexHeatmap::pheatmap(as.matrix(pathway_activity_PROGENy_all_three_drugs), color = my_color, annotation_col = annotation_columns_treatment, annotation_colors = annot_colors_all, fontsize_row = 11.5, fontsize_col = 11.5, cluster_rows = TRUE, cluster_cols = TRUE, main="Pathway activity (PROGENy) in all the conditions - t-values", fontface = 3, show_colnames = TRUE, heatmap_legend_param = list(title = "activity_score", title_gp = gpar(fontsize = 10, fontface="bold"), title_position= "topcenter",legend_height = grid::unit(35,"mm"), grid_width = grid::unit(5,"mm"), labels_gp = gpar(col = "black", font = 2), legend_direction = "horizontal", legend_width = unit(5,"cm")), border_color = "white") %>% ComplexHeatmap::draw(heatmap_legend_side = "bottom", annotation_legend_side = "right")
 
-```
-
-
 
 # If now I want to retrieve the info about the targets
 
 
-```{r}
 # Retrieve PROGENy collection of pathways (with top 500 responsive genes)
 net <- decoupleR::get_progeny(organism = "mouse", top = 500)
 
@@ -1517,20 +1506,16 @@ get_target_info_14_progeny_pathways(t_values_diff_genes_filename, pathway_activi
 
 
 
-## 3. Transcription factor activity inference using decoupleR and ROMA (Representation of module activity from omics data).
+# **5. Transcription factor activity inference**
   
 
   
-# ROMA
-
-
+```{r eval=FALSE, echo=TRUE}
 
 # First, I want to run the rRoma algorithm to infer the activity of transcription factors, where each TF contains a set of targets.
 
 
 # How do I proceed ?
-
-```{r}
 # Import the regulatory gene sets from GTRD (gmt file).
 tf_gmt <- ReadGMTFile("/data/users/tlassale/MODICED_link/Bulk_RNA_in_vitro/in_vitro_results/m3.gtrd.v2023.2.Mm.symbols.gmt")
 
@@ -1545,7 +1530,6 @@ run_roma_tf_MTX_vs_Control_24h <- rRoma.R(counts_in_vitro_df %>% dplyr::select(c
 # Save roma ouptut
 filename <- "..."
 saveRDS(run_roma_tf_MTX_vs_Control_24h, filename)
-```
 
 
 # Now, I want to retrieve TFs with interesting activities, that is those which are shifted and overdispersed.
@@ -1558,7 +1542,7 @@ saveRDS(run_roma_tf_MTX_vs_Control_24h, filename)
 # 3) Plot (+save) the activity scores of the top 20 shifted TFs (arranged by p-value), using roma-based function and ComplexHeatmap package.
 
 
-```{r}
+
 get_shifted_tfs <- function(roma_output_filename, shifted_tfs_matrix_filename, shifted_tfs_matrix_top_20_filename, top_20_shifted_tfs_roma_heatmap_filename, top_20_shifted_tfs_complex_heatmap_filename){
   
   # Load roma output
@@ -1622,9 +1606,6 @@ get_shifted_tfs <- function(roma_output_filename, shifted_tfs_matrix_filename, s
   heatmap_top_20_shifted_tfs <- ComplexHeatmap::pheatmap(as.matrix(shifted_tfs_sample_matrix_top_20_arranged), color= my_color,cluster_rows = TRUE, cluster_cols = TRUE, fontsize_row = 11, fontsize_col = 11,  main="Top 20 shifted tfs", fontface = 3, show_colnames = TRUE, heatmap_legend_param = list(title = "activity_score", title_gp = gpar(fontsize = 10, fontface="bold"), title_position= "topcenter",legend_height = grid::unit(35,"mm"), grid_width = grid::unit(5,"mm"), labels_gp = gpar(col = "black", font = 2), legend_direction = "horizontal", legend_width = unit(5,"cm")), cellwidth = 20) %>% ComplexHeatmap::draw(heatmap_legend_side = "bottom", annotation_legend_side = "right")
   dev.off()
 }
-```
-
-
 
 
 
@@ -1635,7 +1616,6 @@ get_shifted_tfs <- function(roma_output_filename, shifted_tfs_matrix_filename, s
 # 3) Plot (+save) the activity scores of the top 20 overdispersed TFs (arranged by p-value), using roma-based function and ComplexHeatmap package.
 
 
-```{r}
 get_overdispersed_tfs <- function(roma_output_filename, overdispersed_tfs_matrix_filename, overdispersed_tfs_sample_matrix_filename, overdispersed_tfs_matrix_top_20_filename, top_20_overdispersed_tfs_roma_heatmap_filename, top_20_overdispersed_tfs_complex_heatmap_filename){
   
   # Load roma output
@@ -1701,45 +1681,13 @@ get_overdispersed_tfs <- function(roma_output_filename, overdispersed_tfs_matrix
   heatmap_top_20_overdispersed_tfs <- ComplexHeatmap::pheatmap(as.matrix(overdispersed_tfs_sample_matrix_top_20_arranged), color= my_color,cluster_rows = TRUE, cluster_cols = TRUE, fontsize_row = 11, fontsize_col = 11,  main="Top 20 overdispersed tfs", fontface = 3, show_colnames = TRUE, heatmap_legend_param = list(title = "activity_score", title_gp = gpar(fontsize = 10, fontface="bold"), title_position= "topcenter",legend_height = grid::unit(35,"mm"), grid_width = grid::unit(5,"mm"), labels_gp = gpar(col = "black", font = 2), legend_direction = "horizontal", legend_width = unit(5,"cm")), cellwidth = 20) %>% ComplexHeatmap::draw(heatmap_legend_side = "bottom", annotation_legend_side = "right")
   dev.off()
 }
-```
 
 
 # Now if you spotted, in the activity scores of your overdispersed (or shifted) TFs, some TFs with an interesting activity in a given drug over time, and you want to determine if their expression has a similar trend over their observed activity.
 
 ## How can I proceed ?
 
-# Through this example, I will show you how you can generate side-by-side plots showing the activity vs expression of the top 50 overdispersed TFs, in your drug of interest, over time. Here, I am not be specific to a given TF, but with the code below, the user has to choice to plot any TFs, not specifically the top 50 overdispersed TFs.
-
-
-
-```{r}
-
-# Title: TF activity vs expression.
-
-# This Rscript can be run locally, as well as on the Curie server.
-
-# Install libraries of interest
-install.packages("tidyverse")
-install.packages("BiocManager")
-BiocManager::install("biomaRt")
-BiocManager::install("scater")
-install.packages("devtools")
-devtools::install_github("sysbio-curie/rRoma")
-BiocManager::install("OmnipathR")
-BiocManager::install("decoupleR")
-install.packages("patchwork")
-
-
-
-
-
-
-# Load the libraries of interest
-library(tidyverse)
-library(rRoma)
-library(OmnipathR)
-library(decoupleR)
-library(patchwork)
+# Through this example, I will show you how you can generate side-by-side plots showing the activity vs expression of any TFs you want, provided that you can retrieve both their activity (using decoupleR or rRoma algorithm) AND expression.
 
 
 # In the context of the MODICED project, we aimed to characterize the effect of ICD-inducers on cancer cells, at the transcription factor level (i.e. downstream of signaling pathways). To that end, I used two different tools: 
@@ -1748,7 +1696,7 @@ library(patchwork)
 
 
 
-# 1st approach: you ran rRoma, using your normalized gene expression matrix, and the gene sets from GTRD (that you can retrieve from MSigDB), you then saved the output (using the saveRDS function).
+# 1st approach: you ran rRoma, using your normalized gene expression matrix, and gene sets that you retrieved from MSigDB (such as those from GTRD), you then saved the output (using the saveRDS function).
 
 
 # If you need the command to run the rROMA algorithm, you can use the code below:
@@ -1770,7 +1718,7 @@ saveRDS(run_roma_all_samples, filename)
 
 
 # Now that you successfully ran the algorithm, you are able to retrieve the activity scores of your tested TFs, in your sample matrix.
-# One thing to do just after you loaded your roma results, is to ensure that the TF names in the sample matrix (i.e. rownames) start with a capital letter, then the rest is in lowercase.
+# One thing to do just after you loaded your roma results, is to ensure that the TF names in the sample matrix (i.e. rownames) start with a capital letter, then the rest is in lower case.
 # As an example, if you decide to test the TFs from GTRD (retrieved from MSigDB), you will need to remove "_target_genes" after each TF name, where each TF is in full capital letter, as follows:
 roma_results <- readRDS(filename)
 rownames(roma_results$SampleMatrix) <- rownames(roma_results$SampleMatrix) %>% str_to_title() %>% gsub("_target_genes","",.)
@@ -1780,7 +1728,7 @@ rownames(roma_results$SampleMatrix) <- rownames(roma_results$SampleMatrix) %>% s
 
 # 2nd scenario: you used the decoupleR package, to infer transcription factor activity in your samples. 
 # To run decoupleR methods, you need:
-# 1. An input prior knowledge network, typically, you import from decoupleR the GRN CollecTRI (from decoupleR), available for 3 species: human, mouse, rat.
+# 1. An input prior knowledge network, typically, you import from decoupleR the GRN CollecTRI, available for 3 species: human, mouse, rat.
 # 2. An input gene expression matrix, that needs to be normalized (with the method of your choice)
 
 
@@ -1788,11 +1736,11 @@ rownames(roma_results$SampleMatrix) <- rownames(roma_results$SampleMatrix) %>% s
 
 # Get CollecTRI with all the tfs
 # organism_interest <- "..." (can be human, mouse, or rat)
-collectri_df <- get_collectri(organism=organism_interest, split_complexes = FALSE) %>% as.data.frame()
+collectri_df <- get_collectri(organism = organism_interest, split_complexes = FALSE) %>% as.data.frame()
 
 
 
-# counts_decoupleR = matrix object with genes as rows and samples as columns, and normalized (with the method of your choice)
+# Run decouple function, and use the results of the decouple function, as input of the run_consensus method
 run_decoupler_all_samples <- decoupleR::decouple(mat = as.matrix(gene_expression_df) , net = collectri_df, .source = "source", .target = "target", consensus_score = FALSE)
 run_decoupler_all_samples_consensus <- decoupleR::run_consensus(run_decoupler_all_samples, seed = 2)
 
@@ -1806,6 +1754,7 @@ run_decoupler_all_samples_consensus_pivot <- run_decoupler_all_samples_consensus
 
 # Transpose the matrix (+ save it as a csv file), to get TFs as rows and samples as columns, where each TF is in lower case except the first character
 decoupleR_final_results_matrix <- t(run_decoupler_all_samples_consensus_pivot)
+# decoupleR_final_results_matrix_filename <- "...csv"
 write.csv(decoupleR_final_results_matrix, decoupleR_final_results_matrix_filename, row.names = TRUE, col.names = TRUE)
 
 
@@ -1817,23 +1766,23 @@ write.csv(decoupleR_final_results_matrix, decoupleR_final_results_matrix_filenam
 # You have 2 options for that:
 
 # 1st option: In your results, you spotted some TFs with an interesting activity over time in samples treated with a specific drug, and you want to examine their expression in these same samples, to infer a potential correlation between their activity and expression. 
-# 2nd option: Among the TFs you decided to test, such as those from GTRD (with roma) or those from CollecTRI (with decoupleR), I am only interested in specific TFs, for which I want to examine the activity vs expression, over time, in samples treated with a specific drug. 
+# 2nd option: Among the TFs you decided to test, such as those from GTRD (with roma) or those from CollecTRI (with decoupleR), you are only interested in specific TFs, for which I want to examine the activity vs expression, over time, in samples treated with a specific drug. 
 
 
-
+# In any option you decided to use, you will need to call the 3 following functions I created below, to obtain the TF activity vs expression plots, you are looking for.
 
 
 # Create a function to retrieve, among your TFs of interest, those for which I can retrieve both the activity scores and expression values
-get_tfs_interest_activity_expression <- function(tf_results, gene_expression_df, TF_vector){
+get_tfs_interest_activity_expression <- function(tf_results_matrix, gene_expression_df, TF_vector){
   
   
   # Get activity scores of the TFs of interest
-  activity_tfs_interest <- tf_results %>% as.data.frame() %>% filter(rownames(.) %in% TF_vector) 
+  activity_tfs_interest <- tf_results_matrix %>% as.data.frame() %>% filter(rownames(.) %in% TF_vector) 
   
   # Get expression values of the TFs of interest
   expression_tfs_interest <- gene_expression_df %>% filter(rownames(.) %in% TF_vector) 
   
-  # Get the vector of overdispersed TFs for which we can retrieve both their activity and expression
+  # Get the vector of TFs for which we can retrieve both their activity and expression
   activity_expression_tfs_interest <- intersect(rownames(activity_tfs_interest), rownames(expression_tfs_interest))
   
   # Return the vector as the output of the function
@@ -1842,36 +1791,36 @@ get_tfs_interest_activity_expression <- function(tf_results, gene_expression_df,
 
 
 
-# Create a function which retrieves the mean expression and activity of the TFs of interest, over time, in the samples treated with the drug of interest.
-get_longitudinal_mean_expression_activity_tfs_drug_interest <- function(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info){
+# Create a function which retrieves the mean expression and activity of the TFs from the vector, over time, in the samples treated with the drug of interest.
+get_longitudinal_mean_expression_activity_tfs_drug_interest <- function(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info){
   
   
-  # Call function defined above to retrieve vector of TFs for which I retrieve both activity and expression  
-  tfs_interest_activity_expression <- get_tfs_interest_activity_expression(tf_results, gene_expression_df, TF_vector)
+  # Call function defined above to retrieve the vector of TFs for which I retrieve both activity and expression  
+  tfs_interest_activity_expression <- get_tfs_interest_activity_expression(tf_results_matrix, gene_expression_df, TF_vector)
   
   
-  # Restrict sample and gene expression matrices to this vector of TFs, and put it in the same order in both matrices (+ convert matrices into df)
-  activity_scores_tfs_interest_df <- tf_results[tfs_interest_activity_expression,] %>% as.data.frame()
+  # Restrict sample matrix and gene expression df to this vector of TFs, and put it in the same order in both the matrix and df
+  activity_scores_tfs_interest_df <- tf_results_matrix[tfs_interest_activity_expression,] %>% as.data.frame()
   expression_values_tfs_interest_df <- gene_expression_df[tfs_interest_activity_expression,]
   
   
-  # Select, from both df columns, samples treated with the drug of interest
+  # Select, from both df columns, samples treated with the drug of interest, and order them by time (increasingly)
   activity_scores_tfs_drug_interest_df <- activity_scores_tfs_interest_df %>% dplyr::select(contains(drug_interest)) %>% dplyr::select(contains(timepoint_vector[1:length(timepoint_vector)]))
   expression_values_tfs_drug_interest_df <- expression_values_tfs_interest_df %>% dplyr::select(contains(drug_interest)) %>% dplyr::select(contains(timepoint_vector[1:length(timepoint_vector)]))
   
   
-  # 1. Get the longitudinal mean expression of the TFs of interest, in the samples treated with the drug of interest
+  # 1. Get the longitudinal mean expression of the TFs from the vector, in the samples treated with the drug of interest
   
   
   merged_longitudinal_mean_expression_tfs <- expression_values_tfs_drug_interest_df %>% rownames_to_column("TF") %>% gather(Sample,CPM, -TF) %>% dplyr::mutate(timepoint = sub(time_info,"",str_extract(Sample,paste0("[:digit:]+",time_info,"$")))) %>% group_by(TF,timepoint) %>% summarise(Mean_Expression=mean(CPM)) %>% as.data.frame()
-
   
-  # 2. Get the longitudinal mean activity of the TFs of interest, in the samples treated with the drug of interest
+  
+  # 2. Get the longitudinal mean activity of the TFs from the vector, in the samples treated with the drug of interest
   
   
   merged_longitudinal_mean_activity_tfs <- activity_scores_tfs_drug_interest_df %>% rownames_to_column("TF") %>% gather(Sample,activity, -TF) %>% dplyr::mutate(timepoint = sub(time_info,"",str_extract(Sample,paste0("[:digit:]+",time_info,"$")))) %>% group_by(TF,timepoint) %>% summarise(Mean_Activity=mean(activity)) %>% as.data.frame()
   
- 
+  
   # Create a list with 2 elements: 
   # 1st element: expression = df storing the longitudinal mean expression of the TFs, in the samples treated with the drug of interest
   # 2nd element: activity = df storing the longitudinal mean activity of the TFs, in the samples treated with the drug of interest
@@ -1890,63 +1839,64 @@ get_longitudinal_mean_expression_activity_tfs_drug_interest <- function(tf_resul
 
 
 # Plot the longitudinal mean expression vs the longitudinal mean activity score of each TF (side by side plots), in the samples treated with the drug of interest
-plot_longitudinal_mean_expression_activity_drug_interest <- function(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info){
+plot_longitudinal_mean_expression_activity_drug_interest <- function(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info){
   
   
-  # Call the function defined above to retrieve the longitudinal mean expression and activity of the TFs of interest  
-  longitudinal_mean_expression_activity_tfs_drug_interest <- get_longitudinal_mean_expression_activity_tfs_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info)
+  # Call the function defined above to retrieve the longitudinal mean expression and activity of the TFs from the vector 
+  longitudinal_mean_expression_activity_tfs_drug_interest <- get_longitudinal_mean_expression_activity_tfs_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info)
   
   
-  # Store the expression and activity dfs (from the call output) into new variables
+  # Store the expression and activity dfs (from the above call output) into new variables
   longitudinal_mean_expression_tfs_drug_interest <- longitudinal_mean_expression_activity_tfs_drug_interest$expression
   longitudinal_mean_activity_tfs_drug_interest <- longitudinal_mean_expression_activity_tfs_drug_interest$activity
+  
   
   # Create an empty list to store the plots
   list_plots <- list()
   
-  # Loop through the TFs of interest for which we were able to retrieve both the expression and activity
+  # Loop through the TFs from the vector
   for (i in seq(1, nrow(longitudinal_mean_expression_tfs_drug_interest), by=n_timepoints)){
-  
-  # Plot longitudinal mean expression of the underlying TF
-  longitudinal_mean_expression_tf_plot <- ggplot(longitudinal_mean_expression_tfs_drug_interest[i:(i+4),] %>% arrange(as.numeric(timepoint)), mapping = aes(x = factor(timepoint, levels=c("3","6","12","18","24")), y = Mean_Expression)) +
-    geom_point(size = 2, shape=21, aes(color = TF, fill=TF)) +
-    ggrepel::geom_label_repel(aes(label=TF, fill=TF), label.size = 0.15, label.padding = 0.10) +
-    geom_path(aes(color=TF, group=TF), size=1.1) +
-    scale_fill_brewer(palette = "Set2") +
-    scale_color_brewer(palette = "Set2") +
-    ggtitle(paste0("Expression of ",longitudinal_mean_expression_tfs_drug_interest[i,"TF"], " in ",drug_interest)) +
-    theme_bw() +
-    theme(plot.title = element_text(hjust = 0.5, face="bold", size=10)) +
-    theme(axis.title = element_text(face="bold")) +
-    theme(axis.text = element_text(face="bold")) +
-    labs(x = "Timepoint", y = "Mean_Expression") +
-    theme(legend.position = "none")
-  
-  
-  
-  # Plot longitudinal mean activity of the underlying TF
-  longitudinal_mean_activity_tf_plot <- ggplot(longitudinal_mean_activity_tfs_drug_interest[i:(i+4),] %>% arrange(as.numeric(timepoint)), mapping = aes(x = factor(timepoint, levels=c("3","6","12","18","24")), y = Mean_Activity)) +
-    geom_point(size = 2, shape=21, aes(color = TF, fill=TF)) +
-    ggrepel::geom_label_repel(aes(label=TF, fill=TF), label.size = 0.15, label.padding = 0.10) +
-    geom_path(aes(color=TF, group=TF), size=1.1) +
-    scale_fill_brewer(palette = "Set2") +
-    scale_color_brewer(palette = "Set2") +
-    ggtitle(paste0("Activity of ",longitudinal_mean_activity_tfs_drug_interest[i,"TF"], " in ",drug_interest)) +
-    theme_bw() +
-    theme(plot.title = element_text(hjust = 0.5, face="bold", size = 10)) +
-    theme(axis.title = element_text(face="bold")) +
-    theme(axis.text = element_text(face="bold")) +
-    labs(x = "Timepoint", y = "Mean_Activity") +
-    theme(legend.position = "none")
-  
-  
-  # Wrap plots for the longitudinal mean expression and activity of the underlying TF, into a patchwork
-  longitudinal_mean_expression_activity_plots_one_by_one <- wrap_plots(longitudinal_mean_expression_tf_plot, longitudinal_mean_activity_tf_plot) & theme(plot.tag = element_text(face = "bold", size=13))
-  
-  # Add the patchwork for the underlying TF, in the list of plots
-  list_plots <- append(list_plots, list(longitudinal_mean_expression_activity_plots_one_by_one))
-
-  
+    
+    # Plot longitudinal mean expression of the underlying TF
+    longitudinal_mean_expression_tf_plot <- ggplot(longitudinal_mean_expression_tfs_drug_interest[i:(i+n_timepoints-1),] %>% arrange(as.numeric(timepoint)), mapping = aes(x = factor(timepoint, levels= timepoint_vector), y = Mean_Expression)) +
+      geom_point(size = 2, shape=21, aes(color = TF, fill=TF)) +
+      ggrepel::geom_label_repel(aes(label=TF, fill=TF), label.size = 0.15, label.padding = 0.10) +
+      geom_path(aes(color=TF, group=TF), size=1.1) +
+      scale_fill_brewer(palette = "Set2") +
+      scale_color_brewer(palette = "Set2") +
+      ggtitle(paste0("Expression of ",longitudinal_mean_expression_tfs_drug_interest[i,"TF"], " in ",drug_interest)) +
+      theme_bw() +
+      theme(plot.title = element_text(hjust = 0.5, face="bold", size=10)) +
+      theme(axis.title = element_text(face="bold")) +
+      theme(axis.text = element_text(face="bold")) +
+      labs(x = "Timepoint", y = "Mean_Expression") +
+      theme(legend.position = "none")
+    
+    
+    
+    # Plot longitudinal mean activity of the underlying TF
+    longitudinal_mean_activity_tf_plot <- ggplot(longitudinal_mean_activity_tfs_drug_interest[i:(i+n_timepoints-1),] %>% arrange(as.numeric(timepoint)), mapping = aes(x = factor(timepoint, levels= timepoint_vector), y = Mean_Activity)) +
+      geom_point(size = 2, shape=21, aes(color = TF, fill=TF)) +
+      ggrepel::geom_label_repel(aes(label=TF, fill=TF), label.size = 0.15, label.padding = 0.10) +
+      geom_path(aes(color=TF, group=TF), size=1.1) +
+      scale_fill_brewer(palette = "Set2") +
+      scale_color_brewer(palette = "Set2") +
+      ggtitle(paste0("Activity of ",longitudinal_mean_activity_tfs_drug_interest[i,"TF"], " in ",drug_interest)) +
+      theme_bw() +
+      theme(plot.title = element_text(hjust = 0.5, face="bold", size = 10)) +
+      theme(axis.title = element_text(face="bold")) +
+      theme(axis.text = element_text(face="bold")) +
+      labs(x = "Timepoint", y = "Mean_Activity") +
+      theme(legend.position = "none")
+    
+    
+    # Wrap plots for the longitudinal mean expression and activity of the underlying TF, into a patchwork
+    longitudinal_mean_expression_activity_plots_one_by_one <- wrap_plots(longitudinal_mean_expression_tf_plot, longitudinal_mean_activity_tf_plot) & theme(plot.tag = element_text(face = "bold", size=13))
+    
+    # Add the patchwork for the underlying TF, in the list of plots
+    list_plots <- append(list_plots, list(longitudinal_mean_expression_activity_plots_one_by_one))
+    
+    
   }
   
   # Return the list containing all the patchworks as the output of the function
@@ -1960,7 +1910,7 @@ plot_longitudinal_mean_expression_activity_drug_interest <- function(tf_results,
 
 # If you want to add your side-by-side plots into a single patchwork, and save it as a pdf (using R):
 graphics.off()
-all_plots <- plot_longitudinal_mean_expression_activity_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
+all_plots <- plot_longitudinal_mean_expression_activity_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
 all_plots_patchwork <- wrap_plots(all_plots, ncol=1)
 # filename <- "...pdf"
 ggsave(filename, plot = all_plots_patchwork, height = 14 , width = 7)
@@ -1970,47 +1920,49 @@ ggsave(filename, plot = all_plots_patchwork, height = 14 , width = 7)
 
 
 
-# How to call the different functions to retrieve, at the end, the plots of interest ?
+# How to call the different functions to retrieve, at the end, your plots of interest ?
 
 
 # 1st scenario: with rROMA
 
 
 # Load the sample matrix from roma_output
-roma_results <- readRDS(filename)
-tf_results <- roma_results$SampleMatrix 
+# roma_results_filename <- "...rds"
+roma_results <- readRDS(roma_results_filename)
+tf_results_matrix <- roma_results$SampleMatrix 
 # Assuming that you tested the TFs from GTRD (retrieved from MSigDB)
+rownames(tf_results_matrix) <- rownames(tf_results_matrix) %>% str_to_title() %>% gsub("_target_genes","",.)
 # In any case, TF names (i.e. rownames of the sample matrix), need to be in the following format: only first letter in upper case, and no other character than TF name.
-rownames(tf_results) <- rownames(tf_results) %>% str_to_title() %>% gsub("_target_genes","",.)
+
 
 # Load the normalized gene expression df, used to run rROMA
 # Format: genes (only first letter in upper case) as rows and samples as columns. Sample names need to contain time info, such as 3h (for hours) or 3d (for days).
-# In the case, where you have samples (i.e. column names) with no timepoint, the user needs to rename those columns, by adding 0h or 0d, in the column names.
+# In the case, where you have samples (i.e. column names) with no timepoint, the user needs to rename those columns, by adding 0h or 0d (if as an example, you are in hours or days), in the column names
 # gene_expression_df_filename <- "...csv"
 gene_expression_df <- read.csv(gene_expression_df_filename, row.names = TRUE, col.names = TRUE)
 
 
-# Retrieve, from the vector of TFs of interest (created juste below), those for which I can retrieve both the activity scores and expression values
+# Retrieve, from the vector of TFs of interest (created just below), those for which I can retrieve both the activity scores and expression values
 # TF_vector <- c("...", "...", "..."). Each element of the vector is a TF name, where only the first letter is in upper case.
-get_tfs_interest_activity_expression(tf_results, gene_expression_df, TF_vector)
+get_tfs_interest_activity_expression(tf_results_matrix, gene_expression_df, TF_vector)
 
 
 
 # Retrieve the mean expression and activity of those TFs, over time, in the samples treated with the drug of interest.
-# timepoint_vector <- c("...","...","..."). Each element of the vector of the form of "3h" or "3d" (as in the column names of the gene expression df)
+# timepoint_vector <- c("...","...","..."). Each element of the vector of the form of "3h" or "3d" (as it appears in the column names of the gene expression df)
 # drug_interest <- "..."
 # time_info <- "..." (for example: "h" for hours, or "d" for days)
-get_longitudinal_mean_expression_activity_tfs_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info)
+get_longitudinal_mean_expression_activity_tfs_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info)
 
 
 # Plot the longitudinal mean expression vs the longitudinal mean activity score of each of those TFs, in the samples treated with the drug of interest
 # n_timepoints <- "..."
-plot_longitudinal_mean_expression_activity_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
+plot_longitudinal_mean_expression_activity_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
 
 
 # If you want to add your side-by-side plots into a single patchwork, and save it as a pdf (using R), it is as follows:
 graphics.off()
-all_plots <- plot_longitudinal_mean_expression_activity_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
+all_plots <- plot_longitudinal_mean_expression_activity_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
 all_plots_patchwork <- wrap_plots(all_plots, ncol=1)
 # filename <- "...pdf"
 ggsave(filename, plot = all_plots_patchwork, height = 14 , width = 7)
@@ -2026,19 +1978,20 @@ ggsave(filename, plot = all_plots_patchwork, height = 14 , width = 7)
 
 
 # Load the results from decoupleR
-tf_results <- read.csv(decoupleR_final_results_matrix_filename, row.names = TRUE, col.names = TRUE)
+# decoupleR_final_results_matrix_filename <- "...csv"
+tf_results_matrix <- read.csv(decoupleR_final_results_matrix_filename, row.names = TRUE, col.names = TRUE)
 
 
-# Load the normalized gene expression df, used to run the decouple function
+# Load the normalized gene expression df, used to run rROMA
 # Format: genes (only first letter in upper case) as rows and samples as columns. Sample names need to contain time info, such as 3h (for hours) or 3d (for days).
-# In the case, where you have samples (i.e. column names) with no timepoint, the user needs to rename those columns, by adding 0h or 0d, in the column names.
+# In the case, where you have samples (i.e. column names) with no timepoint, the user needs to rename those columns, by adding 0h or 0d (if as an example, you are in hours or days), in the column names
 # gene_expression_df_filename <- "...csv"
 gene_expression_df <- read.csv(gene_expression_df_filename, row.names = TRUE, col.names = TRUE)
 
 
-# Retrieve, from the vector of TFs of interest (created juste below), those for which I can retrieve both the activity scores and expression values
+# Retrieve, from the vector of TFs of interest (created just below), those for which I can retrieve both the activity scores and expression values
 # TF_vector <- c("...", "...", "..."). Each element of the vector is a TF name, where only the first letter is in upper case.
-get_tfs_interest_activity_expression(tf_results, gene_expression_df, TF_vector)
+get_tfs_interest_activity_expression(tf_results_matrix, gene_expression_df, TF_vector)
 
 
 
@@ -2046,22 +1999,32 @@ get_tfs_interest_activity_expression(tf_results, gene_expression_df, TF_vector)
 # timepoint_vector <- c("...","...","..."). Each element of the vector of the form of "3h" or "3d" (as in the column names of the gene expression df)
 # drug_interest <- "..."
 # time_info <- "..." (for example: "h" for hours, or "d" for days)
-get_longitudinal_mean_expression_activity_tfs_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info)
+get_longitudinal_mean_expression_activity_tfs_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, time_info)
 
 
 # Plot the longitudinal mean expression vs the longitudinal mean activity score of each of those TFs, in the samples treated with the drug of interest
 # n_timepoints <- "..."
-plot_longitudinal_mean_expression_activity_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
+plot_longitudinal_mean_expression_activity_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
 
 
 # If you want to add your side-by-side plots into a single patchwork, and save it as a pdf (using R), it is as follows:
 graphics.off()
-all_plots <- plot_longitudinal_mean_expression_activity_drug_interest(tf_results, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
+all_plots <- plot_longitudinal_mean_expression_activity_drug_interest(tf_results_matrix, gene_expression_df, TF_vector, timepoint_vector, drug_interest, n_timepoints, time_info)
 all_plots_patchwork <- wrap_plots(all_plots, ncol=1)
 # filename <- "...pdf"
 ggsave(filename, plot = all_plots_patchwork, height = 14 , width = 7)
 
+
 ```
+
+
+
+
+
+
+
+
+
 
 
 
